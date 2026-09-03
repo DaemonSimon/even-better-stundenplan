@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../models/timetable.dart';
+import '../pages/homework_list_page.dart';
 import '../routes.dart';
 import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
@@ -20,6 +21,7 @@ void showLessonDetailModal(
   BlockTime? time,
   List<int>? periods,
   TeacherLookup? teacherLookup,
+  String? sessionId,
 }) {
   showModalBottomSheet<void>(
     context: context,
@@ -32,6 +34,7 @@ void showLessonDetailModal(
         time: time ?? BlockSchedule.timeFor(block) ?? BlockSchedule.fallbackTimeFor(block),
         lessons: lessons,
         teacherLookup: teacherLookup,
+        sessionId: sessionId,
         onEditAlias: () {
           final lesson = lessons.first;
           Navigator.of(sheetContext).pop();
@@ -58,6 +61,7 @@ class _LessonDetailSheet extends StatelessWidget {
     required this.lessons,
     required this.onEditAlias,
     this.teacherLookup,
+    this.sessionId,
   });
 
   final DailyTimetable day;
@@ -67,6 +71,7 @@ class _LessonDetailSheet extends StatelessWidget {
   final List<LessonEntry> lessons;
   final VoidCallback onEditAlias;
   final TeacherLookup? teacherLookup;
+  final String? sessionId;
 
   static String _format(TimeOfDay time) =>
       DateFormat('HH:mm').format(DateTime(0, 1, 1, time.hour, time.minute));
@@ -92,6 +97,18 @@ class _LessonDetailSheet extends StatelessWidget {
     Clipboard.setData(ClipboardData(text: _summary));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Kopiert')),
+    );
+  }
+
+  void _openHomework(BuildContext context) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HomeworkListPage(
+          subject: lessons.first.lesson.trim(),
+          sessionId: sessionId,
+        ),
+      ),
     );
   }
 
@@ -163,14 +180,23 @@ class _LessonDetailSheet extends StatelessWidget {
               ),
             const SizedBox(height: 8),
             Divider(color: scheme.outlineVariant),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              runSpacing: 4,
               children: [
                 TextButton.icon(
                   onPressed: () => _copy(context),
                   icon: const Icon(Icons.copy, size: 18),
                   label: const Text('Kopieren'),
                 ),
-                const Spacer(),
+                TextButton.icon(
+                  onPressed: sessionId != null && sessionId!.isNotEmpty
+                      ? () => _openHomework(context)
+                      : null,
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('Hausaufgaben ansehen'),
+                ),
                 TextButton.icon(
                   onPressed: onEditAlias,
                   icon: const Icon(Icons.edit_outlined, size: 18),

@@ -28,6 +28,7 @@ class DailyAgendaView extends StatefulWidget {
     this.clock,
     this.tickInterval,
     this.teacherLookup,
+    this.sessionId,
   });
 
   /// Stundenplan des angezeigten Tages (leere Liste = freier Tag).
@@ -44,6 +45,9 @@ class DailyAgendaView extends StatefulWidget {
 
   /// Kollegiums-Nachschlagefunktion: Kürzel -> voller Name / E-Mail.
   final TeacherLookup? teacherLookup;
+
+  /// Sitzungs-ID für virtueller-stundenplan.org.
+  final String? sessionId;
 
   @override
   State<DailyAgendaView> createState() => _DailyAgendaViewState();
@@ -431,6 +435,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
       time: time,
       lessons: [lesson],
       teacherLookup: widget.teacherLookup,
+      sessionId: widget.sessionId,
     );
   }
 

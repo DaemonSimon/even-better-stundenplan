@@ -148,6 +148,7 @@ class _MyHomePageState extends State<HomePage> {
       teacherDirectory: widget.teacherDirectory,
       clock: _clock.now,
       tickInterval: _clock.tickInterval,
+      sessionId: widget.sessionManager.sessionId,
       onDaySelected: (index) {
         setState(() {
           _selectedDayIndex = index;

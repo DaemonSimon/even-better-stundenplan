@@ -33,6 +33,7 @@ class StundenplanWidget extends StatefulWidget {
     this.teacherDirectory,
     this.clock,
     this.tickInterval,
+    this.sessionId,
   });
 
   /// Montag der anzuzeigenden Woche.
@@ -55,6 +56,9 @@ class StundenplanWidget extends StatefulWidget {
 
   /// Takt für Live-Updates der Tagesansicht; standardmäßig 30 Sekunden.
   final Duration? tickInterval;
+
+  /// Sitzungs-ID für virtueller-stundenplan.org.
+  final String? sessionId;
 
   @override
   State<StundenplanWidget> createState() => _StundenplanWidgetState();
@@ -178,6 +182,7 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
                     clock: widget.clock,
                     tickInterval: widget.tickInterval,
                     teacherLookup: widget.teacherDirectory?.lookup,
+                    sessionId: widget.sessionId,
                   ),
                 ),
               );
