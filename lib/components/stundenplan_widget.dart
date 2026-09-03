@@ -173,17 +173,26 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
               final dayIndex = page;
               return RefreshIndicator(
                 onRefresh: _reload,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                  child: DailyAgendaView(
-                    day: weekDays[dayIndex],
-                    isToday: todayIndex == dayIndex,
-                    clock: widget.clock,
-                    tickInterval: widget.tickInterval,
-                    teacherLookup: widget.teacherDirectory?.lookup,
-                    sessionId: widget.sessionId,
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: DailyAgendaView(
+                          day: weekDays[dayIndex],
+                          isToday: todayIndex == dayIndex,
+                          clock: widget.clock,
+                          tickInterval: widget.tickInterval,
+                          teacherLookup: widget.teacherDirectory?.lookup,
+                          sessionId: widget.sessionId,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               );
             },
