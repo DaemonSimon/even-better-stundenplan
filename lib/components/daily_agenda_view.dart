@@ -29,6 +29,7 @@ class DailyAgendaView extends StatefulWidget {
     this.tickInterval,
     this.teacherLookup,
     this.sessionId,
+    this.minHeight = 0,
   });
 
   /// Stundenplan des angezeigten Tages (leere Liste = freier Tag).
@@ -48,6 +49,13 @@ class DailyAgendaView extends StatefulWidget {
 
   /// Sitzungs-ID für virtueller-stundenplan.org.
   final String? sessionId;
+
+  /// Mindesthöhe der Tagesansicht in Pixeln (z. B. die verfügbare
+  /// Viewport-Höhe). Reicht der Inhalt nicht bis hierher (Tag mit wenigen
+  /// Stunden), werden die Zeilen gleichmäßig gestreckt, damit unten kein
+  /// leerer Raum entsteht. Überschreitet der Inhalt die Höhe, wächst er
+  /// ungehindert und der ScrollView übernimmt.
+  final double minHeight;
 
   @override
   State<DailyAgendaView> createState() => _DailyAgendaViewState();
@@ -180,10 +188,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
       if (period == BlockSchedule.firstPeriodOfBlock(block) &&
           slot != null &&
           nextSlot != null &&
-          sameLessonList(
-            _nonEmptyLessons(slot),
-            _nonEmptyLessons(nextSlot),
-          )) {
+          sameLessonList(_nonEmptyLessons(slot), _nonEmptyLessons(nextSlot))) {
         periods.add(period + 1);
       }
 
@@ -203,15 +208,29 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
       }
     }
 
-    // Zeilen in ihrer natürlichen Höhe (Kartenhöhe bestimmt die Zeile).
-    Widget content = Column(
-      children: [
-        for (final segment in segments)
-          KeyedSubtree(
-            key: _rowKeys.putIfAbsent(segment.id, () => GlobalKey()),
-            child: segment.child,
-          ),
-      ],
+    // Zeilen füllen die verfügbare Höhe: Die ConstrainedBox greift nur,
+    // wenn der Inhalt kürzer als die Mindesthöhe ist; das IntrinsicHeight
+    // auf Parent-Ebene wandelt die unbegrenzte Höhe des ScrollViews in
+    // eine tight Höhe um, sodass die Expanded-Zeilen den überschüssigen
+    // Platz gleichmäßig unter sich aufteilen können. Bei langen Tagen
+    // entspricht die Höhe exakt der natürlichen Summe – nichts wird
+    // gestaucht, der ScrollView übernimmt.
+    Widget content = ConstrainedBox(
+      constraints: BoxConstraints(minHeight: widget.minHeight),
+      child: IntrinsicHeight(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final segment in segments)
+              Expanded(
+                child: KeyedSubtree(
+                  key: _rowKeys.putIfAbsent(segment.id, () => GlobalKey()),
+                  child: segment.child,
+                ),
+              ),
+          ],
+        ),
+      ),
     );
 
     // Rote "Jetzt"-Linie: wandert über den Tag. Sie wird nur am heutigen
@@ -273,9 +292,9 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
   void _measureRows(List<_DaySegment> segments) {
     final heights = <String, double>{};
     for (final segment in segments) {
-      final box = _rowKeys[segment.id]
-          ?.currentContext
-          ?.findRenderObject() as RenderBox?;
+      final box =
+          _rowKeys[segment.id]?.currentContext?.findRenderObject()
+              as RenderBox?;
       if (box != null) heights[segment.id] = box.size.height;
     }
 
@@ -341,7 +360,9 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     final time = _timeFor(block, periods);
 
     final slot = slots[firstPeriod];
-    final lessons = slot == null ? const <LessonEntry>[] : _nonEmptyLessons(slot);
+    final lessons = slot == null
+        ? const <LessonEntry>[]
+        : _nonEmptyLessons(slot);
 
     final isLive = lessons.isNotEmpty && BlockSchedule.isWithin(time, _now);
 
@@ -351,72 +372,71 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     final urgent =
         widget.isToday &&
         lessons.isNotEmpty &&
-        minutesNow >= time.startInMinutes - BlockSchedule.urgencyWindowMinutes &&
+        minutesNow >=
+            time.startInMinutes - BlockSchedule.urgencyWindowMinutes &&
         minutesNow < time.startInMinutes;
     final urgentRemaining = time.startInMinutes - minutesNow;
 
-    return IntrinsicHeight(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _TimeColumn(
-              label: periods.join('+'),
-              blockTime: time,
-              isLive: isLive,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: lessons.isEmpty
-                  ? FreePeriodCard(blockTime: time)
-                  : Row(
-                      // Karten füllen die volle Zeilenhöhe, damit die
-                      // Jetzt-Linie exakt an ihren Ober-/Unterkanten
-                      // anliegt (kein vertikales Zentrieren).
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (int i = 0; i < lessons.length; i++)
-                          Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                fit: StackFit.passthrough,
-                                children: [
-                                  ClassCard(
-                                    lesson: lessons[i],
-                                    block: block,
-                                    blockTime: time,
-                                    teacherLabel: _teacherLabel(
-                                      lessons[i].teacher,
-                                    ),
-                                    isLive: isLive,
-                                    isUrgent: urgent,
-                                    onTap: () => _openDetails(
-                                      lessons[i],
-                                      block,
-                                      periods,
-                                      time,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _TimeColumn(
+            label: periods.join('+'),
+            blockTime: time,
+            isLive: isLive,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: lessons.isEmpty
+                ? FreePeriodCard(blockTime: time)
+                : Row(
+                    // Karten füllen die volle Zeilenhöhe, damit die
+                    // Jetzt-Linie exakt an ihren Ober-/Unterkanten
+                    // anliegt (kein vertikales Zentrieren).
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (int i = 0; i < lessons.length; i++)
+                        Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              fit: StackFit.passthrough,
+                              children: [
+                                ClassCard(
+                                  lesson: lessons[i],
+                                  block: block,
+                                  blockTime: time,
+                                  teacherLabel: _teacherLabel(
+                                    lessons[i].teacher,
+                                  ),
+                                  isLive: isLive,
+                                  isUrgent: urgent,
+                                  onTap: () => _openDetails(
+                                    lessons[i],
+                                    block,
+                                    periods,
+                                    time,
+                                  ),
+                                ),
+                                if (urgent)
+                                  Positioned(
+                                    top: -12,
+                                    left: -6,
+                                    child: UrgencyBadge(
+                                      remainingMinutes: urgentRemaining,
                                     ),
                                   ),
-                                  if (urgent)
-                                    Positioned(
-                                      top: -12,
-                                      left: -6,
-                                      child: UrgencyBadge(
-                                        remainingMinutes: urgentRemaining,
-                                      ),
-                                    ),
-                                ],
-                              ),
+                              ],
                             ),
                           ),
-                      ],
-                    ),
-            ),
-          ],
-        ),
+                        ),
+                    ],
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -563,9 +583,7 @@ class _TimeColumn extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  isLive
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
+                  isLive ? Icons.radio_button_checked : Icons.radio_button_off,
                   size: 14,
                   color: accent,
                 ),
@@ -574,9 +592,7 @@ class _TimeColumn extends StatelessWidget {
                   label,
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: isLive
-                        ? scheme.primary
-                        : scheme.onSurfaceVariant,
+                    color: isLive ? scheme.primary : scheme.onSurfaceVariant,
                   ),
                 ),
               ],

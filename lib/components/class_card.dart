@@ -101,13 +101,10 @@ class ClassCard extends StatelessWidget {
     final border = isLive
         ? Border.all(color: scheme.primary, width: 1.5)
         : isUrgent
-            ? const Border(
-                left: BorderSide(color: _urgencyAmber, width: 4),
-              )
-            : null;
+        ? const Border(left: BorderSide(color: _urgencyAmber, width: 4))
+        : null;
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 76),
       decoration: BoxDecoration(
         borderRadius: const BorderRadius.all(Radius.circular(14)),
         color: SubjectColors.pastelBackgroundFor(lesson.lesson, scheme),
@@ -208,6 +205,7 @@ class ClassCard extends StatelessWidget {
 }
 
 /// Karte für eine freie Stunde: gestrichelter Rahmen, bewusst leer.
+/// Füllt die ihr zugewiesene Zeilenhöhe aus (kein eigener Height-Wert).
 class FreePeriodCard extends StatelessWidget {
   const FreePeriodCard({super.key, required this.blockTime});
 
@@ -216,34 +214,31 @@ class FreePeriodCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 76,
-      child: DashedBorder(
-        radius: 14,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.self_improvement,
-              size: 20,
-              color: scheme.onSurfaceVariant,
+    return DashedBorder(
+      radius: 14,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.self_improvement,
+            size: 20,
+            color: scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Freie Stunde',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${_formatTime(blockTime.start)} – ${_formatTime(blockTime.end)}',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
             ),
-            const SizedBox(width: 8),
-            Text(
-              'Freie Stunde',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '${_formatTime(blockTime.start)} – ${_formatTime(blockTime.end)}',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -267,38 +262,42 @@ class LunchDivider extends StatelessWidget {
 
     // Standard-Zustand: dezent, Text mit deckendem Hintergrund, damit
     // die rote Jetzt-Linie unter ihm verschwindet (kein hässliches
-    // Kreuz, wenn sie den Trenner kreuzt).
+    // Kreuz, wenn sie den Trenner kreuzt). Center hält den Trenner
+    // vertikal zentriert, wenn die Zeile zur Füllung des Screens
+    // gestreckt wird.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          const Expanded(child: Divider()),
-          Container(
-            color: scheme.surface,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.restaurant,
-                  size: 16,
-                  color: scheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Mittagspause 13:15 – 13:45',
-                  style: theme.textTheme.labelMedium?.copyWith(
+      child: Center(
+        child: Row(
+          children: [
+            const Expanded(child: Divider()),
+            Container(
+              color: scheme.surface,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.restaurant,
+                    size: 16,
                     color: scheme.onSurfaceVariant,
                   ),
-                ),
-                if (countdownMinutes != null) ...[
                   const SizedBox(width: 8),
-                  _LunchCountdownPill(minutes: countdownMinutes!),
+                  Text(
+                    'Mittagspause 13:15 – 13:45',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (countdownMinutes != null) ...[
+                    const SizedBox(width: 8),
+                    _LunchCountdownPill(minutes: countdownMinutes!),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const Expanded(child: Divider()),
-        ],
+            const Expanded(child: Divider()),
+          ],
+        ),
       ),
     );
   }

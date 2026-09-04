@@ -81,7 +81,9 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
   void initState() {
     super.initState();
     _future = _load();
-    _pageController = PageController(initialPage: _pageFor(widget.selectedDayIndex));
+    _pageController = PageController(
+      initialPage: _pageFor(widget.selectedDayIndex),
+    );
   }
 
   @override
@@ -189,6 +191,7 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
                           tickInterval: widget.tickInterval,
                           teacherLookup: widget.teacherDirectory?.lookup,
                           sessionId: widget.sessionId,
+                          minHeight: constraints.maxHeight,
                         ),
                       ),
                     );
