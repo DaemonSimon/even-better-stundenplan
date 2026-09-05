@@ -24,10 +24,10 @@ String fixture(String name) => File('test/fixtures/$name').readAsStringSync();
 /// würden den Test hängen lassen.
 class _NoopDiskCache extends TimetableDiskCache {
   @override
-  Future<void> save(String dateKey, DailyTimetable value) async {}
+  Future<void> save(String weekKey, WeeklyTimetable value) async {}
 
   @override
-  Future<DailyTimetable?> load(String dateKey) async => null;
+  Future<WeeklyTimetable?> load(String weekKey) async => null;
 }
 
 class InMemoryCredentialStorage implements CredentialStorage {
@@ -122,7 +122,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     await tester.pumpWidget(buildTestWidget(repository));
@@ -168,7 +168,7 @@ void main() {
     (tester) async {
       final repository = fixtureRepository(
         sessionManager,
-        'day_with_double_hours.html',
+        'week_with_double_hours.html',
       );
       final teacherDirectory = TeacherDirectoryProvider(
         initialEntries: const {
@@ -207,7 +207,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     await tester.pumpWidget(buildTestWidget(repository));
@@ -223,7 +223,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_prefixed_teacher.html',
+      'week_with_prefixed_teacher.html',
     );
     final teacherDirectory = TeacherDirectoryProvider(
       initialEntries: const {
@@ -253,7 +253,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
     final teacherDirectory = TeacherDirectoryProvider(
       initialEntries: const {
@@ -288,7 +288,7 @@ void main() {
   testWidgets('teacher row is not tappable without a photo', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
     final teacherDirectory = TeacherDirectoryProvider(
       initialEntries: const {
@@ -354,7 +354,7 @@ void main() {
   testWidgets('weekly mode shows the IServ tasks view', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     await tester.pumpWidget(
@@ -372,7 +372,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 08:30 -> Block 1 (08:10–09:40) läuft.
@@ -392,7 +392,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 10:30 -> Stunde 3 (10:00–10:45) läuft; Stunde 4 (10:45) ist
@@ -412,7 +412,7 @@ void main() {
   testWidgets('no live badge outside school hours', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 15:30 -> nach Stunde 8, kein Unterricht mehr.
@@ -429,7 +429,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
     var clock = DateTime(2026, 8, 14, 9, 0); // Freitag, Block 1 läuft
 
@@ -455,7 +455,7 @@ void main() {
   testWidgets('no now line before the school day starts', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 07:30 -> vor Block 1 (08:10): keine Linie, keine Uhrzeit-Pille.
@@ -473,7 +473,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 08:10 -> Block 1 beginnt: Linie wird sichtbar (oben).
@@ -488,7 +488,7 @@ void main() {
   testWidgets('no now line after the school day ends', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 15:30 -> nach Stunde 8 (15:00): keine Linie, keine Uhrzeit-Pille.
@@ -504,7 +504,7 @@ void main() {
   testWidgets('no now line on a day that is not today', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // Dienstag gewählt (Index 1), Uhrzeit am Freitag -> nicht "heute".
@@ -526,7 +526,7 @@ void main() {
     (tester) async {
       final repository = fixtureRepository(
         sessionManager,
-        'day_ends_at_lunch.html',
+        'week_ends_at_lunch.html',
       );
 
       await tester.pumpWidget(buildTestWidget(repository));
@@ -548,7 +548,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_ends_at_lunch.html',
+      'week_ends_at_lunch.html',
     );
 
     await tester.pumpWidget(buildTestWidget(repository));
@@ -581,7 +581,7 @@ void main() {
       // Tag MIT Nachmittagsunterricht (8. Stunde): Mittagspause sichtbar.
       final repository = fixtureRepository(
         sessionManager,
-        'day_with_double_hours.html',
+        'week_with_double_hours.html',
       );
 
       // Block 3 läuft noch (12:50) -> Linie sichtbar, kein Countdown.
@@ -623,7 +623,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // Exakt 08:10 -> Block 1 beginnt: Linie auf der Oberkante der Karte.
@@ -643,7 +643,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     double lineAt(DateTime t) {
@@ -674,7 +674,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     await tester.pumpWidget(buildTestWidget(repository));
@@ -698,7 +698,7 @@ void main() {
     (tester) async {
       final repository = fixtureRepository(
         sessionManager,
-        'day_with_double_hours.html',
+        'week_with_double_hours.html',
       );
 
       await tester.pumpWidget(buildTestWidget(repository));
@@ -721,7 +721,7 @@ void main() {
   testWidgets('now line time pill sits on the right side', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     await tester.pumpWidget(
@@ -740,7 +740,7 @@ void main() {
     (tester) async {
       final repository = fixtureRepository(
         sessionManager,
-        'day_with_double_hours.html',
+        'week_with_double_hours.html',
       );
       int? selectedIndex;
       late StateSetter setState;
@@ -787,7 +787,7 @@ void main() {
   testWidgets('tapping a day pill jumps the page view', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
     int? selectedIndex;
     late StateSetter setState;
@@ -826,7 +826,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 08:00 -> Block 1 beginnt in 10 Minuten (08:10).
@@ -857,7 +857,7 @@ void main() {
   ) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 08:05 -> exakt 5 Minuten vorher: urgent.
@@ -888,7 +888,7 @@ void main() {
   testWidgets('split classes both get the urgency state', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // 11:40 -> Block 3 (11:45) mit En + PO [Kl. 10] als Split.
@@ -907,7 +907,7 @@ void main() {
   testWidgets('no urgency badge on days that are not today', (tester) async {
     final repository = fixtureRepository(
       sessionManager,
-      'day_with_double_hours.html',
+      'week_with_double_hours.html',
     );
 
     // Dienstag gewählt, Uhrzeit Freitag 08:00 -> nicht "heute".
@@ -927,7 +927,7 @@ void main() {
   testWidgets('a day without any lessons shows the empty state', (
     tester,
   ) async {
-    final repository = fixtureRepository(sessionManager, 'day_empty.html');
+    final repository = fixtureRepository(sessionManager, 'week_empty.html');
 
     await tester.pumpWidget(buildTestWidget(repository));
     await tester.pumpAndSettle();

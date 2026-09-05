@@ -13,17 +13,17 @@ class StundenplanApi {
   final String _userAgent;
 
   static const String _baseUrl =
-      'https://virtueller-stundenplan.org/page2/index.php';
+      'https://virtueller-stundenplan.org/page-5/index.php';
 
-  /// Lädt die Tagesansicht für ein Datum (Format dd.MM.yyyy).
+  /// Lädt die komplette Woche für ein Datum (Format dd.MM.yyyy).
+  /// Die Seite liefert die ganze Woche (Mo–So) als eine Tabelle; das
+  /// Datum bestimmt nur, welche Woche angezeigt wird.
   /// Redirects werden nicht verfolgt, damit abgelaufene Sitzungen
   /// (Weiterleitung zur Login-Seite) erkannt werden können.
-  Future<http.Response> fetchDay(String sessionId, String dateString) async {
+  Future<http.Response> fetchWeek(String sessionId, String dateString) async {
     final request = http.Request(
       'GET',
-      Uri.parse(
-        '$_baseUrl?KlaBuDatum=$dateString&HideChangesOff=1&CompactOff=1',
-      ),
+      Uri.parse('$_baseUrl?KlaBuDatum=$dateString&RES='),
     );
     request.followRedirects = false;
     request.headers['Cookie'] = 'PHPSESSID=$sessionId';

@@ -84,11 +84,18 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     _pageController = PageController(
       initialPage: _pageFor(widget.selectedDayIndex),
     );
+    // Nach einer stillen Re-Authentifizierung (Hintergrund) erscheinen
+    // frische Daten – dann neu laden, ohne den Nutzer umzuleiten.
+    widget.repository.addListener(_onRepositoryChanged);
   }
 
   @override
   void didUpdateWidget(StundenplanWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository) {
+      oldWidget.repository.removeListener(_onRepositoryChanged);
+      widget.repository.addListener(_onRepositoryChanged);
+    }
     if (oldWidget.weekStart != widget.weekStart) {
       _future = _load();
     }
@@ -109,8 +116,14 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
 
   @override
   void dispose() {
+    widget.repository.removeListener(_onRepositoryChanged);
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _onRepositoryChanged() {
+    if (!mounted) return;
+    _reload();
   }
 
   /// Seite der Tagesansicht für einen Wochentag: Die Tage sind in

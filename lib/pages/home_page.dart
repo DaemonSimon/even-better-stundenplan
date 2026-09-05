@@ -73,6 +73,14 @@ class _MyHomePageState extends State<HomePage> {
     bool authStatus = await widget.sessionManager.checkAuthentication();
 
     if (!authStatus) {
+      // Stille Re-Anmeldung im Hintergrund über die gespeicherten
+      // Zugangsdaten – nur wenn das scheitert (z. B. keine Daten
+      // gespeichert), zur manuellen Anmeldung weiterleiten.
+      final reauthOk = await widget.sessionManager.tryReAuthenticate();
+      if (reauthOk) {
+        if (mounted) setState(() {});
+        return;
+      }
       if (!mounted) return;
       context.pushReplacement('/authenticate');
       return;

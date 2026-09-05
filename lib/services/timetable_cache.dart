@@ -5,8 +5,11 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/timetable.dart';
 
-/// Cache für tägliche Stundenpläne: In-Memory mit TTL für schnellen Zugriff
-/// und eine JSON-Datei auf der Platte als Offline-Fallback.
+/// Cache für wöchentliche Stundenpläne: In-Memory mit TTL für schnellen
+/// Zugriff und eine JSON-Datei auf der Platte als Offline-Fallback.
+///
+/// Schlüssel ist der Wochenstart (`dd.MM.yyyy` des Montags); gespeichert
+/// wird die gesamte Woche (Mo–Fr).
 class TimetableCache {
   TimetableCache({TimetableDiskCache? disk})
     : _disk = disk ?? TimetableDiskCache();
@@ -17,26 +20,26 @@ class TimetableCache {
   final Map<String, _CacheEntry> _memory = {};
   final TimetableDiskCache _disk;
 
-  DailyTimetable? getFresh(String dateKey) {
-    final entry = _memory[dateKey];
+  WeeklyTimetable? getFresh(String weekKey) {
+    final entry = _memory[weekKey];
     if (entry == null) return null;
     if (DateTime.now().difference(entry.fetchedAt) > ttl) return null;
     return entry.value;
   }
 
-  DailyTimetable? getStale(String dateKey) => _memory[dateKey]?.value;
+  WeeklyTimetable? getStale(String weekKey) => _memory[weekKey]?.value;
 
-  Future<DailyTimetable?> getFromDisk(String dateKey) => _disk.load(dateKey);
+  Future<WeeklyTimetable?> getFromDisk(String weekKey) => _disk.load(weekKey);
 
-  Future<void> put(String dateKey, DailyTimetable value) async {
-    _memory[dateKey] = _CacheEntry(value: value, fetchedAt: DateTime.now());
+  Future<void> put(String weekKey, WeeklyTimetable value) async {
+    _memory[weekKey] = _CacheEntry(value: value, fetchedAt: DateTime.now());
 
     // Älteste Einträge entfernen, falls die Obergrenze überschritten wird.
     while (_memory.length > maxEntries) {
       _memory.remove(_memory.keys.first);
     }
 
-    await _disk.save(dateKey, value);
+    await _disk.save(weekKey, value);
   }
 
   void clear() {
@@ -47,20 +50,21 @@ class TimetableCache {
 class _CacheEntry {
   const _CacheEntry({required this.value, required this.fetchedAt});
 
-  final DailyTimetable value;
+  final WeeklyTimetable value;
   final DateTime fetchedAt;
 }
 
-/// Plattenbasierter Cache als JSON-Datei mit begrenzter Anzahl Tagen.
+/// Plattenbasierter Cache als JSON-Datei mit begrenzter Anzahl Wochen.
 class TimetableDiskCache {
-  static const int _maxDays = 14;
+  static const int _maxWeeks = 14;
+  static const int _dayCount = 5;
 
   Future<File> _file() async {
     final directory = await getApplicationSupportDirectory();
     return File('${directory.path}/timetable_cache.json');
   }
 
-  Future<void> save(String dateKey, DailyTimetable value) async {
+  Future<void> save(String weekKey, WeeklyTimetable value) async {
     try {
       final file = await _file();
       final data = <String, dynamic>{};
@@ -70,11 +74,11 @@ class TimetableDiskCache {
           data.addAll(existing);
         }
       }
-      data[dateKey] = value.toJson();
+      data[weekKey] = _weekToJson(value);
 
-      // Nur die neuesten Tage behalten.
+      // Nur die neuesten Wochen behalten.
       final keys = data.keys.toList();
-      while (keys.length > _maxDays) {
+      while (keys.length > _maxWeeks) {
         data.remove(keys.removeAt(0));
       }
 
@@ -84,17 +88,39 @@ class TimetableDiskCache {
     }
   }
 
-  Future<DailyTimetable?> load(String dateKey) async {
+  Future<WeeklyTimetable?> load(String weekKey) async {
     try {
       final file = await _file();
       if (!await file.exists()) return null;
       final data = jsonDecode(await file.readAsString());
       if (data is! Map<String, dynamic>) return null;
-      final entry = data[dateKey];
+      final entry = data[weekKey];
       if (entry is! Map<String, dynamic>) return null;
-      return DailyTimetable.fromJson(entry);
+      return _weekFromJson(entry);
     } catch (_) {
       return null;
     }
+  }
+
+  Map<String, dynamic> _weekToJson(WeeklyTimetable value) => {
+    'weekStart': value.weekStart.toIso8601String(),
+    'days': [
+      for (int i = 0; i < value.days.length && i < _dayCount; i++)
+        value.days[i].toJson(),
+    ],
+  };
+
+  WeeklyTimetable _weekFromJson(Map<String, dynamic> json) {
+    final rawDays = json['days'] as List<dynamic>? ?? [];
+    return WeeklyTimetable(
+      weekStart:
+          json['weekStart'] is String
+              ? DateTime.parse(json['weekStart'] as String)
+              : DateTime.now(),
+      days: rawDays
+          .whereType<Map<String, dynamic>>()
+          .map(DailyTimetable.fromJson)
+          .toList(),
+    );
   }
 }
