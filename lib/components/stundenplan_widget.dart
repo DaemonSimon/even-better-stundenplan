@@ -186,30 +186,27 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
             },
             itemBuilder: (context, page) {
               final dayIndex = page;
-              return RefreshIndicator(
-                onRefresh: _reload,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight,
-                        ),
-                        child: DailyAgendaView(
-                          day: weekDays[dayIndex],
-                          isToday: todayIndex == dayIndex,
-                          clock: widget.clock,
-                          tickInterval: widget.tickInterval,
-                          teacherLookup: widget.teacherDirectory?.lookup,
-                          sessionId: widget.sessionId,
-                          minHeight: constraints.maxHeight,
-                        ),
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
                       ),
-                    );
-                  },
-                ),
+                      child: DailyAgendaView(
+                        day: weekDays[dayIndex],
+                        isToday: todayIndex == dayIndex,
+                        clock: widget.clock,
+                        tickInterval: widget.tickInterval,
+                        teacherLookup: widget.teacherDirectory?.lookup,
+                        sessionId: widget.sessionId,
+                        minHeight: constraints.maxHeight,
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -238,18 +235,7 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
   }
 
   Widget _buildEmptyState() {
-    return RefreshIndicator(
-      onRefresh: _reload,
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: SizedBox(
-            height: constraints.maxHeight,
-            child: const Center(child: Text('Kein Unterricht in dieser Woche')),
-          ),
-        ),
-      ),
-    );
+    return const Center(child: Text('Kein Unterricht in dieser Woche'));
   }
 
   /// Fehler-/Info-Zustände mit optionalem Retry-Button.
