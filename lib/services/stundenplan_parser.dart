@@ -153,7 +153,7 @@ class StundenplanParser {
             board: rooms, row: i, day: day,
           );
 
-          final lessonEntries = _buildLessons(row, rowLessons, rowRooms);
+          final lessonEntries = _buildLessons(row, rowLessons, rowRooms, i + 1);
           if (lessonEntries.isNotEmpty) {
             week[day].add(TimeSlot(period: i + 1, lessons: lessonEntries));
           }
@@ -190,6 +190,7 @@ class StundenplanParser {
     List<_Cell> teachers,
     List<_Cell> lessons,
     List<_Cell> rooms,
+    int period,
   ) {
     final result = <LessonEntry>[];
 
@@ -198,7 +199,7 @@ class StundenplanParser {
     for (int j = 0; j < teachers.length; j++) {
       final lesson = j < lessons.length ? lessons[j].plainText : '';
       final room = j < rooms.length ? rooms[j].plainText : '';
-      final entry = _fromTeacherCell(teachers[j], lesson, room);
+      final entry = _fromTeacherCell(teachers[j], lesson, room, period);
       if (entry != null) {
         result.add(entry);
         usedTeacher = true;
@@ -220,6 +221,7 @@ class StundenplanParser {
         lesson: lesson.isEmpty ? ' ' : lesson,
         teacher: teacher.isEmpty ? ' ' : teacher,
         room: room.isEmpty ? ' ' : room,
+        period: period,
       );
       if (!entry.isEmpty) result.add(entry);
     }
@@ -232,7 +234,12 @@ class StundenplanParser {
   /// Eintrag zusammengeführt: der eigentliche Lehrer landet in
   /// [LessonEntry.teacher], der Vertreter in
   /// [LessonEntry.substituteTeacher].
-  LessonEntry? _fromTeacherCell(_Cell cell, String lesson, String room) {
+  LessonEntry? _fromTeacherCell(
+    _Cell cell,
+    String lesson,
+    String room,
+    int period,
+  ) {
     if (cell.hasSubstitution) {
       final originalRaw = cell.originalText ?? '';
       final substituteRaw = cell.substituteText ?? '';
@@ -258,6 +265,7 @@ class StundenplanParser {
             : substitute.teacher,
         room: roomOut,
         substituteTeacher: substitute.teacher,
+        period: period,
       );
     }
 
@@ -271,6 +279,7 @@ class StundenplanParser {
       lesson: lessonOut,
       teacher: parts.teacher,
       room: roomOut,
+      period: period,
     );
   }
 

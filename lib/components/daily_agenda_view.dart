@@ -6,12 +6,14 @@ import 'package:intl/intl.dart';
 import '../models/timetable.dart';
 import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
-import '../utils/teacher_photo.dart';
 import 'class_card.dart';
 import 'detail_modal.dart';
 
 /// Farbe der roten "Jetzt"-Linie.
-const Color _nowRed = Color(0xFFE53935);
+const Color _nowRed = Color(0xFFF23838);
+
+/// Blau für das Live-Signal (Subject-Dot) in der Zeit-Spalte.
+const Color _liveBlue = Color(0xFF3D6B8E);
 
 /// Tagesansicht: vertikale Timeline mit Zeit-Spalte links und
 /// Unterrichtskarten rechts.
@@ -31,6 +33,7 @@ class DailyAgendaView extends StatefulWidget {
     this.teacherLookup,
     this.sessionId,
     this.minHeight = 0,
+    this.group,
   });
 
   /// Stundenplan des angezeigten Tages (leere Liste = freier Tag).
@@ -57,6 +60,10 @@ class DailyAgendaView extends StatefulWidget {
   /// leerer Raum entsteht. Überschreitet der Inhalt die Höhe, wächst er
   /// ungehindert und der ScrollView übernimmt.
   final double minHeight;
+
+  /// Kursgruppe des Nutzers (z. B. "A"/"B"). Ist sie gesetzt, werden nur
+  /// die Karten dieser Gruppe gerendert; die andere Gruppe wird verworfen.
+  final String? group;
 
   @override
   State<DailyAgendaView> createState() => _DailyAgendaViewState();
@@ -182,17 +189,16 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
       final block = BlockSchedule.blockForPeriod(period);
       final periods = <int>[period];
 
-      // Doppelstunde: identischer Unterricht in zwei aufeinanderfolgenden
-      // Stunden desselben Blocks -> eine gemeinsame Karte.
-      final slot = slotsByPeriod[period];
-      final nextSlot = slotsByPeriod[period + 1];
+      // Doppelstunden werden anhand von Fach + Gruppe zusammengeführt
+      // (nicht anhand strikt identischer Einträge), damit eine Stunde,
+      // in der nur eine der beiden Stunden vertreten ist, EINE Karte
+      // (partielle Vertretung, Card 3) bleibt.
       if (period == BlockSchedule.firstPeriodOfBlock(block) &&
-          slot != null &&
-          nextSlot != null &&
-          sameLessonList(_nonEmptyLessons(slot), _nonEmptyLessons(nextSlot))) {
+          _sameCourseInBoth(slotsByPeriod, period, period + 1)) {
         periods.add(period + 1);
       }
 
+      final blocks = _buildBlocks(slotsByPeriod, periods);
       segments.add(
         _DaySegment(
           id: 'p${periods.join('-')}',
@@ -200,6 +206,8 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
           child: _buildPeriodRow(
             block: block,
             periods: periods,
+            blocks: blocks,
+            isDouble: periods.length > 1,
             slots: slotsByPeriod,
           ),
         ),
@@ -362,31 +370,55 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
   Widget _buildPeriodRow({
     required int block,
     required List<int> periods,
+    required List<LessonBlock> blocks,
+    required bool isDouble,
     required Map<int, TimeSlot> slots,
   }) {
-    final firstPeriod = periods.first;
-
     final time = _timeFor(block, periods);
 
-    final slot = slots[firstPeriod];
-    final lessons = slot == null
-        ? const <LessonEntry>[]
-        : _nonEmptyLessons(slot);
+    // Gruppen-Filter (Regel 5): nur die Karten der eigenen Gruppe zeigen,
+    // die andere Gruppe komplett verwerfen.
+    final shown = widget.group == null
+        ? blocks
+        : [
+            for (final b in blocks)
+              if (b.group == null ||
+                  b.group!.toUpperCase() == widget.group!.toUpperCase())
+                b,
+          ];
 
-    final isLive = lessons.isNotEmpty && BlockSchedule.isWithin(time, _now);
+    if (shown.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _TimeColumn(
+              label: periods.join('+'),
+              blockTime: time,
+              isLive: false,
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: FreePeriodCard(blockTime: time)),
+          ],
+        ),
+      );
+    }
+
+    final isLive = shown.any((b) => BlockSchedule.isWithin(time, _now));
 
     // "Urgency": Die Stunde beginnt in <= 5 Minuten, hat aber noch
-    // nicht angefangen -> Karte bekommt einen Amber-Balken + Countdown.
+    // nicht angefangen -> Countdown-Badge.
     final minutesNow = _now.hour * 60 + _now.minute;
     final urgent =
         widget.isToday &&
-        lessons.isNotEmpty &&
+        shown.isNotEmpty &&
         minutesNow >=
             time.startInMinutes - BlockSchedule.urgencyWindowMinutes &&
         minutesNow < time.startInMinutes;
     final urgentRemaining = time.startInMinutes - minutesNow;
 
-    final compact = lessons.length > 2;
+    final compact = shown.length > 2;
     final cardGap = compact ? 4.0 : 6.0;
 
     return Padding(
@@ -401,122 +433,179 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
           ),
           SizedBox(width: compact ? 8 : 12),
           Expanded(
-            child: lessons.isEmpty
-                ? FreePeriodCard(blockTime: time)
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (int i = 0; i < lessons.length; i++)
-                        Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.only(left: i == 0 ? 0 : cardGap),
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              fit: StackFit.passthrough,
-                              children: [
-                                ClassCard(
-                                  lesson: lessons[i],
-                                  block: block,
-                                  blockTime: time,
-                                  teacherLabel: _teacherLabel(
-                                    lessons[i].teacher,
-                                  ),
-                                  substituteTeacherLabel: _substituteLabel(
-                                    lessons[i].substituteTeacher,
-                                  ),
-                                  onSubstituteTap: _substituteTap(
-                                    lessons[i].substituteTeacher,
-                                  ),
-                                  isLive: isLive,
-                                  isUrgent: urgent,
-                                  compact: compact,
-                                  onTap: () => _openDetails(
-                                    lessons[i],
-                                    block,
-                                    periods,
-                                    time,
-                                  ),
-                                ),
-                                if (urgent)
-                                  Positioned(
-                                    top: -12,
-                                    left: -6,
-                                    child: UrgencyBadge(
-                                      remainingMinutes: urgentRemaining,
-                                    ),
-                                  ),
-                              ],
-                            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (int i = 0; i < shown.length; i++)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(left: i == 0 ? 0 : cardGap),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        fit: StackFit.passthrough,
+                        children: [
+                          ClassCard(
+                            block: shown[i],
+                            blockTime: time,
+                            isLive: isLive,
+                            isUrgent: urgent,
+                            compact: compact,
+                            stripGroup: widget.group != null,
+                            teacherLookup: widget.teacherLookup,
+                            onTap: () => _openDetails(shown[i], block, periods, time),
                           ),
-                        ),
-                    ],
+                          if (urgent)
+                            Positioned(
+                              top: -12,
+                              left: -6,
+                              child: UrgencyBadge(
+                                remainingMinutes: urgentRemaining,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
+  /// Baut aus den Perioden eines Blocks die zusammengefassten
+  /// [LessonBlock]e. Doppelstunden werden anhand von Fach + Gruppe
+  /// zusammengeführt, nicht anhand strikt identischer Einträge.
+  List<LessonBlock> _buildBlocks(
+    Map<int, TimeSlot> slots,
+    List<int> periods,
+  ) {
+    final lessons1 = _nonEmptyLessonsOf(slots, periods.first);
+    final lessons2 = periods.length > 1
+        ? _nonEmptyLessonsOf(slots, periods[1])
+        : const <LessonEntry>[];
+
+    final blocks = <LessonBlock>[];
+    final used2 = List<bool>.filled(lessons2.length, false);
+
+    for (final l1 in lessons1) {
+      LessonEntry? match;
+      for (int j = 0; j < lessons2.length; j++) {
+        if (!used2[j] && _sameCourseGroup(l1, lessons2[j])) {
+          match = lessons2[j];
+          used2[j] = true;
+          break;
+        }
+      }
+      blocks.add(
+        LessonBlock(
+          subject: l1.lesson.trim(),
+          room: l1.room.trim(),
+          group: _groupOf(l1),
+          periods: match == null ? [l1] : [l1, match],
+        ),
+      );
+    }
+
+    // Einzelne Stunden der zweiten Periodenhälfte (erste ist frei).
+    for (int j = 0; j < lessons2.length; j++) {
+      if (used2[j]) continue;
+      final l2 = lessons2[j];
+      blocks.add(
+        LessonBlock(
+          subject: l2.lesson.trim(),
+          room: l2.room.trim(),
+          group: _groupOf(l2),
+          periods: [l2],
+        ),
+      );
+    }
+    return blocks;
+  }
+
+  List<LessonEntry> _nonEmptyLessonsOf(Map<int, TimeSlot> slots, int period) {
+    final slot = slots[period];
+    if (slot == null) return const [];
+    return _nonEmptyLessons(slot);
+  }
+
+  /// Sind zwei aufeinanderfolgende Perioden derselbe Kurs (Fach + Gruppe),
+  /// werden sie zu einer Doppelstunde zusammengeführt (Regel 4)?
+  bool _sameCourseInBoth(
+    Map<int, TimeSlot> slots,
+    int p1,
+    int p2,
+  ) {
+    final a = _nonEmptyLessonsOf(slots, p1);
+    final b = _nonEmptyLessonsOf(slots, p2);
+    if (a.isEmpty || b.isEmpty || a.length != b.length) return false;
+
+    final used2 = List<bool>.filled(b.length, false);
+    for (final la in a) {
+      var found = false;
+      for (int j = 0; j < b.length; j++) {
+        if (!used2[j] && _sameCourseGroup(la, b[j])) {
+          used2[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) return false;
+    }
+    return true;
+  }
+
+  /// Unterscheiden sich zwei Einträge nur durch Lehrkraft/Raum (z. B.
+  /// wegen einer Vertretung), gehören sie dennoch zum selben Kurs – sie
+  /// werden anhand von Fach + Gruppe zusammengeführt.
+  static bool _sameCourseGroup(LessonEntry a, LessonEntry b) {
+    final sa = stripGroupPrefix(a.lesson).trim().toLowerCase();
+    final sb = stripGroupPrefix(b.lesson).trim().toLowerCase();
+    if (sa.isEmpty || sb.isEmpty) return false;
+    return sa == sb && _groupOf(a) == _groupOf(b);
+  }
+
+  static String? _groupOf(LessonEntry e) =>
+      groupPrefixOf(e.lesson) ?? groupPrefixOf(e.teacher);
+
   void _openDetails(
-    LessonEntry lesson,
+    LessonBlock lessonBlock,
     int block,
     List<int> periods,
     BlockTime time,
   ) {
+    // Zusammengeführte Doppelstunden bestehen aus identischen Perioden –
+    // im Modal reicht EIN Eintrag. Einzige Ausnahme: die partielle
+    // Vertretung (Card 3), wo beide Lehrkraft-Zustände sichtbar bleiben.
+    final lessons = <LessonEntry>[];
+    for (final p in lessonBlock.periods) {
+      final duplicate = lessons.any(
+        (existing) =>
+            existing.lesson == p.lesson &&
+            existing.teacher == p.teacher &&
+            existing.room == p.room &&
+            existing.substituteTeacher == p.substituteTeacher,
+      );
+      if (!duplicate) lessons.add(p);
+    }
+
     showLessonDetailModal(
       context,
       day: widget.day,
       block: block,
       periods: periods,
       time: time,
-      lessons: [lesson],
+      lessons: lessons,
       teacherLookup: widget.teacherLookup,
       sessionId: widget.sessionId,
+      stripGroup: widget.group != null,
     );
   }
 
   /// Anzeigename der Lehrkraft: vollen Namen aus dem Verzeichnis, ein
   /// Präfix wie "A:KREP" bleibt dabei erhalten ("A: Helga Müller").
-  String? _teacherLabel(String raw) {
-    final lookup = widget.teacherLookup;
-    if (lookup == null) return null;
-    final split = splitTeacherPrefix(raw);
-    final entry = lookup(split.kuerzel);
-    if (entry == null) return null;
-    return split.prefix == null
-        ? entry.fullName
-        : '${split.prefix}: ${entry.fullName}';
-  }
-
-  /// Anzeigename der Vertretungslehrkraft (wie [_teacherLabel], aber für
-  /// [LessonEntry.substituteTeacher]); ohne Treffer das rohe Kürzel.
-  String? _substituteLabel(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return null;
-    final lookup = widget.teacherLookup;
-    final split = splitTeacherPrefix(raw);
-    final entry = lookup?.call(split.kuerzel);
-    if (entry == null) {
-      return split.prefix == null ? raw : raw;
-    }
-    return split.prefix == null
-        ? entry.fullName
-        : '${split.prefix}: ${entry.fullName}';
-  }
-
-  /// Öffnet das Portrait-Foto der Vertretungslehrkraft, falls vorhanden.
-  VoidCallback? _substituteTap(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return null;
-    final lookup = widget.teacherLookup;
-    final split = splitTeacherPrefix(raw);
-    final entry = lookup?.call(split.kuerzel);
-    final photoUrl = entry?.photoUrl;
-    if (photoUrl == null) return null;
-    return () => showTeacherPhotoDialog(
-      context,
-      _substituteLabel(raw) ?? raw,
-      photoUrl,
-    );
-  }
+  /// Wird von [ClassCard] intern aufgelöst und ist dort gekapselt.
 }
 
 /// Eine Zeile der Tagesansicht mit ihrem Zeitfenster. `time == null`
@@ -549,7 +638,7 @@ class _NowLine extends StatelessWidget {
     final timeText = DateFormat('HH:mm').format(now);
 
     return SizedBox(
-      height: 2,
+      height: 1.5,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -614,7 +703,7 @@ class _TimeColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final accent = isLive ? scheme.primary : scheme.outlineVariant;
+    final accent = isLive ? _liveBlue : scheme.outlineVariant;
 
     return SizedBox(
       width: 76,
@@ -638,7 +727,7 @@ class _TimeColumn extends StatelessWidget {
                   label,
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: isLive ? scheme.primary : scheme.onSurfaceVariant,
+                    color: isLive ? _liveBlue : scheme.onSurfaceVariant,
                   ),
                 ),
               ],

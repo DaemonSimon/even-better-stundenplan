@@ -12,6 +12,7 @@ import 'services/session_manager.dart';
 import 'services/secure_storage.dart';
 import 'services/teacher_directory.dart';
 import 'routes.dart';
+import 'components/class_card.dart';
 
 const Color _seedColor = Color(0xFFC59B31);
 
@@ -97,6 +98,9 @@ class MyApp extends StatelessWidget {
             colorScheme: darkColorScheme ?? _defaultDarkColorScheme,
             brightness: Brightness.dark,
             useMaterial3: true,
+            scaffoldBackgroundColor: appBackground,
+            canvasColor: appBackground,
+            cardColor: cardBackground,
             pageTransitionsTheme: const PageTransitionsTheme(
               builders: <TargetPlatform, PageTransitionsBuilder>{
                 TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),

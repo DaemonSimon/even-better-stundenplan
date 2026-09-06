@@ -9,8 +9,8 @@ import '../routes.dart';
 import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
 import '../utils/room_info.dart';
-import '../utils/subject_colors.dart';
 import '../utils/teacher_photo.dart';
+import 'class_card.dart';
 
 /// Öffnet die Detail-Modal (Bottom Sheet) für eine Unterrichtsstunde
 /// aus Tagesansicht oder Wochenmatrix.
@@ -23,10 +23,12 @@ void showLessonDetailModal(
   List<int>? periods,
   TeacherLookup? teacherLookup,
   String? sessionId,
+  bool stripGroup = false,
 }) {
   showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
+    backgroundColor: cardBackground,
     builder: (sheetContext) {
       return _LessonDetailSheet(
         day: day,
@@ -39,6 +41,7 @@ void showLessonDetailModal(
         lessons: lessons,
         teacherLookup: teacherLookup,
         sessionId: sessionId,
+        stripGroup: stripGroup,
         onEditAlias: () {
           final lesson = lessons.first;
           Navigator.of(sheetContext).pop();
@@ -66,6 +69,7 @@ class _LessonDetailSheet extends StatelessWidget {
     required this.onEditAlias,
     this.teacherLookup,
     this.sessionId,
+    this.stripGroup = false,
   });
 
   final DailyTimetable day;
@@ -76,6 +80,9 @@ class _LessonDetailSheet extends StatelessWidget {
   final VoidCallback onEditAlias;
   final TeacherLookup? teacherLookup;
   final String? sessionId;
+
+  /// Gruppen-Präfixe ("A:"/"B:") aus Lehrkraft-Anzeigen entfernen (Regel 5).
+  final bool stripGroup;
 
   static String _format(TimeOfDay time) =>
       DateFormat('HH:mm').format(DateTime(0, 1, 1, time.hour, time.minute));
@@ -124,6 +131,9 @@ class _LessonDetailSheet extends StatelessWidget {
     final scheme = theme.colorScheme;
     final lesson = lessons.first;
     final dayName = DateFormat('EEEE, dd.MM.yyyy').format(day.date);
+    final subjectText = lesson.lesson.trim().isEmpty
+        ? '—'
+        : (stripGroup ? stripGroupPrefix(lesson.lesson).trim() : lesson.lesson.trim());
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -135,52 +145,44 @@ class _LessonDetailSheet extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: SubjectColors.pastelBackgroundFor(
-                      lesson.lesson,
-                      scheme,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                Expanded(
                   child: Text(
-                    lesson.lesson.trim().isEmpty ? '—' : lesson.lesson.trim(),
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    subjectText,
+                    style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: scheme.onSurface,
+                      color: Colors.white,
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _periodLabel,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _periodLabel,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$dayName · $_timeText',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$dayName · $_timeText',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cardGrey,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ],
             ),
             const SizedBox(height: 16),
             for (final lesson in lessons)
-              _LessonInfo(lesson: lesson, teacherLookup: teacherLookup),
+              _LessonInfo(
+                lesson: lesson,
+                teacherLookup: teacherLookup,
+                stripGroup: stripGroup,
+              ),
             const SizedBox(height: 8),
             Divider(color: scheme.outlineVariant),
             Wrap(
@@ -222,16 +224,23 @@ class _LessonDetailSheet extends StatelessWidget {
 /// Vertretungslehrkraft (rot) und rechts der eigentliche Lehrer (durch-
 /// gestrichen) – beide per Tap auf ihr Portrait-Foto klickbar.
 class _LessonInfo extends StatelessWidget {
-  const _LessonInfo({required this.lesson, this.teacherLookup});
+  const _LessonInfo({
+    required this.lesson,
+    this.teacherLookup,
+    this.stripGroup = false,
+  });
 
   final LessonEntry lesson;
   final TeacherLookup? teacherLookup;
+
+  /// Gruppen-Präfixe aus den Lehrkraft-Anzeigen entfernen (Regel 5).
+  final bool stripGroup;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final muted = theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface);
+    final muted = theme.textTheme.bodyMedium?.copyWith(color: cardGrey);
 
     final teacher = lesson.teacher.trim();
     final room = lesson.room.trim();
@@ -248,7 +257,7 @@ class _LessonInfo extends StatelessWidget {
               child: _TeacherLine(
                 name: _displayFor(substitute),
                 photoTap: _photoTap(context, substitute),
-                color: _substituteRed,
+                color: substituteRed,
               ),
             ),
             const SizedBox(width: 16),
@@ -315,15 +324,23 @@ class _LessonInfo extends StatelessWidget {
   }
 
   /// Anzeigename der Lehrkraft: voller Name, geprefixtes Kürzel bleibt
-  /// ("A: Helga Müller (KREP)"); ohne Treffer das rohe Kürzel.
+  /// ("A: Helga Müller (KREP)"). Bei [stripGroup] wird das Präfix entfernt
+  /// ("Helga Müller (KREP)"). Ohne Treffer das rohe Kürzel.
   String _displayFor(String raw) {
     if (raw.isEmpty) return raw;
     final split = splitTeacherPrefix(raw);
     final entry = teacherLookup?.call(split.kuerzel);
-    if (entry == null || entry.fullName == split.kuerzel) return raw;
-    return split.prefix == null
-        ? '${entry.fullName} ($raw)'
-        : '${split.prefix}: ${entry.fullName} (${split.kuerzel})';
+    final resolved = entry?.fullName ?? split.kuerzel;
+    if (entry == null || resolved == split.kuerzel) {
+      return split.prefix != null && stripGroup
+          ? stripGroupPrefix(raw)
+          : raw;
+    }
+    return split.prefix != null && stripGroup
+        ? '$resolved (${split.kuerzel})'
+        : split.prefix == null
+            ? '$resolved ($raw)'
+            : '${split.prefix}: $resolved (${split.kuerzel})';
   }
 
   /// Öffnet das Portrait-Foto zur Lehrkraft, falls ein Foto existiert.
@@ -336,9 +353,6 @@ class _LessonInfo extends StatelessWidget {
     return () => showTeacherPhotoDialog(context, _displayFor(raw), photoUrl);
   }
 }
-
-/// Rot für die Vertretungslehrkraft (auffällig auf Pastell-Hintergründen).
-const Color _substituteRed = Color(0xFFD32F2F);
 
 /// Eine Lehrkraft-Zeile: Icon, Name – bei Vertretung rot und/oder durch-
 /// gestrichen (Original), per Tap das Portrait-Foto (falls vorhanden).
@@ -359,7 +373,7 @@ class _TeacherLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final baseColor = color ?? scheme.onSurface;
+    final baseColor = color ?? cardGrey;
 
     return InkWell(
       onTap: photoTap,

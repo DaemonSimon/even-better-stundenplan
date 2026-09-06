@@ -7,9 +7,11 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:better_stundenplan/components/class_card.dart';
+import 'package:better_stundenplan/components/group_settings_sheet.dart';
 import 'package:better_stundenplan/components/stundenplan_widget.dart';
 import 'package:better_stundenplan/models/timetable.dart';
 import 'package:better_stundenplan/providers/teacher_directory_provider.dart';
+import 'package:better_stundenplan/services/group_preference.dart';
 import 'package:better_stundenplan/services/secure_storage.dart';
 import 'package:better_stundenplan/services/session_manager.dart';
 import 'package:better_stundenplan/services/stundenplan_api.dart';
@@ -73,6 +75,7 @@ Widget buildTestWidget(
   int day = 4,
   DateTime Function()? clock,
   TeacherDirectoryProvider? teacherDirectory,
+  String? group,
 }) {
   return MaterialApp(
     home: Scaffold(
@@ -84,6 +87,7 @@ Widget buildTestWidget(
         repository: repository,
         teacherDirectory: teacherDirectory,
         clock: clock,
+        group: group,
       ),
     ),
   );
@@ -248,6 +252,119 @@ void main() {
     expect(find.text('A: Maren Krep (KREP)'), findsOneWidget);
   });
 
+  testWidgets('group filter shows only the chosen group and strips prefixes', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(sessionManager, 'week_with_groups.html');
+    final teacherDirectory = TeacherDirectoryProvider(
+      initialEntries: const {
+        'KREP': TeacherEntry(kuerzel: 'KREP', fullName: 'Maren Krep'),
+        'KRAUS': TeacherEntry(kuerzel: 'KRAUS', fullName: 'Knut Krause'),
+      },
+    );
+    Widget base(String? group) => buildTestWidget(
+      repository,
+      teacherDirectory: teacherDirectory,
+      group: group,
+    );
+
+    // Ohne Gruppe: beide Kurse nebeneinander, Präfixe bleiben erhalten.
+    await tester.pumpWidget(base(null));
+    await tester.pumpAndSettle();
+    expect(find.text('A: Maren Krep'), findsOneWidget);
+    expect(find.text('B: Knut Krause'), findsOneWidget);
+    expect(find.text('Ma'), findsOneWidget);
+    expect(find.text('En'), findsOneWidget);
+
+    // Gruppe A: nur A-Kurs, Präfix aus Fach/Lehrkraft entfernt (Regel 5).
+    await tester.pumpWidget(base('A'));
+    await tester.pumpAndSettle();
+    expect(find.text('Maren Krep'), findsOneWidget);
+    expect(find.text('A: Maren Krep'), findsNothing);
+    expect(find.text('B: Knut Krause'), findsNothing);
+    expect(find.text('En'), findsNothing);
+    expect(find.text('Ma'), findsOneWidget);
+
+    // Gruppe B: nur B-Kurs.
+    await tester.pumpWidget(base('B'));
+    await tester.pumpAndSettle();
+    expect(find.text('Knut Krause'), findsOneWidget);
+    expect(find.text('A: Maren Krep'), findsNothing);
+    expect(find.text('Ma'), findsNothing);
+  });
+
+  testWidgets('detail modal strips group prefixes when a group is active', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(sessionManager, 'week_with_groups.html');
+    final teacherDirectory = TeacherDirectoryProvider(
+      initialEntries: const {
+        'KREP': TeacherEntry(kuerzel: 'KREP', fullName: 'Maren Krep'),
+      },
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        repository,
+        teacherDirectory: teacherDirectory,
+        group: 'A',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Ma'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Maren Krep (KREP)'), findsOneWidget);
+    expect(find.text('A: Maren Krep (KREP)'), findsNothing);
+  });
+
+  test('SharedPreferencesGroupStore persists and clears the group', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = SharedPreferencesGroupStore();
+
+    expect(await store.getGroup(), isNull);
+
+    await store.saveGroup('a');
+    expect(await store.getGroup(), 'A');
+
+    await store.saveGroup(null);
+    expect(await store.getGroup(), isNull);
+  });
+
+  testWidgets('group settings sheet offers flat A/B buttons and reports the choice', (
+    tester,
+  ) async {
+    String? chosen;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showGroupSettingsSheet(
+                context,
+                group: 'A',
+                onChanged: (value) => chosen = value,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Einstellungen'), findsOneWidget);
+    expect(find.text('Kursgruppe'), findsOneWidget);
+
+    await tester.tap(find.text('B'));
+    await tester.pumpAndSettle();
+
+    expect(chosen, 'B');
+  });
+
   testWidgets('tapping the teacher name opens the teacher photo dialog', (
     tester,
   ) async {
@@ -310,7 +427,7 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
   });
 
-  testWidgets('substitution card shows only the substitute in red', (
+  testWidgets('full substitution card shows red substitute and struck original', (
     tester,
   ) async {
     final repository = fixtureRepository(
@@ -337,17 +454,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Karte zeigt NUR den Vertreter, nicht das durchgestrichene Original.
+    // Card 2 (Voll-Vertretung): "[Rot Birgit Deut] [Grau durchgestrichen Bernd Smit]".
     expect(find.text('Birgit Deut'), findsOneWidget);
-    expect(find.text('BSMT'), findsNothing);
+    expect(find.text('Bernd Smit'), findsOneWidget);
 
-    // Vertreter ist rot dargestellt.
-    final red = const Color(0xFFD32F2F);
-    final substituteText = tester.widget<Text>(find.text('Birgit Deut'));
-    expect(substituteText.style?.color, red);
+    // Vertreter ist rot, das Original grau und durchgestrichen.
+    final subText = tester.widget<Text>(find.text('Birgit Deut'));
+    expect(subText.style?.color, substituteRed);
+    final oldText = tester.widget<Text>(find.text('Bernd Smit'));
+    expect(oldText.style?.color, cardGrey);
+    expect(oldText.style?.decoration, TextDecoration.lineThrough);
   });
 
-  testWidgets('tapping the substitute on the card opens its photo', (
+  testWidgets('tapping a substitute in the detail modal opens its photo', (
     tester,
   ) async {
     final repository = fixtureRepository(
@@ -356,6 +475,7 @@ void main() {
     );
     final teacherDirectory = TeacherDirectoryProvider(
       initialEntries: const {
+        'BSMT': TeacherEntry(kuerzel: 'BSMT', fullName: 'Bernd Smit'),
         'BDET': TeacherEntry(
           kuerzel: 'BDET',
           fullName: 'Birgit Deut',
@@ -373,7 +493,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Birgit Deut'));
+    // Karte antippen -> Detail-Modal; im Modal ist der Vertreter rot und
+    // per Tap auf sein Portrait-Foto klickbar.
+    await tester.tap(find.text('SP'));
+    await tester.pumpAndSettle();
+
+    final subName = find.text('Birgit Deut (BDET)');
+    expect(subName, findsOneWidget);
+
+    await tester.tap(subName);
     await tester.pumpAndSettle();
 
     expect(find.byType(Dialog), findsOneWidget);
@@ -416,7 +544,7 @@ void main() {
     final substitute = tester.widget<Text>(find.text('Birgit Deut (BDET)'));
     final original = tester.widget<Text>(find.text('Bernd Smit (BSMT)'));
 
-    expect(substitute.style?.color, const Color(0xFFD32F2F));
+    expect(substitute.style?.color, substituteRed);
     expect(original.style?.decoration, TextDecoration.lineThrough);
   });
 

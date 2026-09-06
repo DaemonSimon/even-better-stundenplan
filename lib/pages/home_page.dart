@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../components/debug_clock_sheet.dart';
+import '../components/group_settings_sheet.dart';
 import '../components/stundenplan_widget.dart';
 import '../providers/date_utilities.dart';
 import '../providers/teacher_directory_provider.dart';
+import '../services/group_preference.dart';
 import '../services/session_manager.dart';
 import '../services/stundenplan_repository.dart';
 import '../utils/simulated_clock.dart';
@@ -18,11 +20,20 @@ class HomePage extends StatefulWidget {
     required this.title,
     required this.sessionManager,
     required this.teacherDirectory,
+    this.groupStore,
+    this.initialGroup,
   });
 
   final String title;
   final SessionManager sessionManager;
   final TeacherDirectoryProvider teacherDirectory;
+
+  /// Ablage der Kursgruppe; standardmäßig SharedPreferences (Regel 5).
+  final GroupPreferenceStore? groupStore;
+
+  /// Bereits geladene Gruppe (optional, verhindert ein Einblenden aller
+  /// Gruppen vor dem Laden).
+  final String? initialGroup;
 
   @override
   State<HomePage> createState() => _MyHomePageState();
@@ -38,10 +49,16 @@ class _MyHomePageState extends State<HomePage> {
   // Anzeigemodus: Tages-Agenda oder IServ-Aufgaben
   TimetableViewMode _viewMode = TimetableViewMode.daily;
 
+  // Kursgruppe des Nutzers (z. B. "A"/"B"); null = alle Gruppen zeigen.
+  String? _group;
+
   // Debug-Uhr: Zeit und Geschwindigkeit simulierbar (nur für Tests/Dev)
   late final SimulatedClock _clock = SimulatedClock();
 
   late final StundenplanRepository _repository;
+
+  late final GroupPreferenceStore _groupStore =
+      widget.groupStore ?? SharedPreferencesGroupStore();
 
   DateTime get _weekStart => getNthDayOfWeek(_baseDate, 1);
 
@@ -65,8 +82,28 @@ class _MyHomePageState extends State<HomePage> {
     super.initState();
     _baseDate = _clock.now();
     _selectedDayIndex = _todayIndex;
+    _group = widget.initialGroup;
     _repository = StundenplanRepository(sessionManager: widget.sessionManager);
     WidgetsBinding.instance.addPostFrameCallback((_) => checkAuth());
+    _loadGroup();
+  }
+
+  Future<void> _loadGroup() async {
+    final stored = await _groupStore.getGroup();
+    if (!mounted || stored == _group) return;
+    setState(() => _group = stored);
+  }
+
+  void _openSettings() {
+    showGroupSettingsSheet(
+      context,
+      group: _group,
+      onChanged: (value) {
+        if (!mounted) return;
+        setState(() => _group = value);
+        _groupStore.saveGroup(value);
+      },
+    );
   }
 
   void checkAuth() async {
@@ -157,6 +194,7 @@ class _MyHomePageState extends State<HomePage> {
       clock: _clock.now,
       tickInterval: _clock.tickInterval,
       sessionId: widget.sessionManager.sessionId,
+      group: _group,
       onDaySelected: (index) {
         setState(() {
           _selectedDayIndex = index;
@@ -216,6 +254,11 @@ class _MyHomePageState extends State<HomePage> {
           child: Text(widget.title),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Einstellungen',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+          ),
           if (_clock.isCustomized) _DebugClockBadge(clock: _clock),
         ],
       ),

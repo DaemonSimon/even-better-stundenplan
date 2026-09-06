@@ -7,11 +7,15 @@ class LessonEntry {
   /// `+ Vertreter`); `null` = normale Stunde ohne Vertretung.
   final String? substituteTeacher;
 
+  /// Stundennummer (1-basiert), zu der dieser Eintrag gehört.
+  final int period;
+
   const LessonEntry({
     required this.lesson,
     required this.teacher,
     required this.room,
     this.substituteTeacher,
+    this.period = 0,
   });
 
   factory LessonEntry.fromJson(Map<String, dynamic> json) => LessonEntry(
@@ -19,6 +23,7 @@ class LessonEntry {
     teacher: json['teacher'] as String? ?? ' ',
     room: json['room'] as String? ?? ' ',
     substituteTeacher: json['substituteTeacher'] as String?,
+    period: json['period'] as int? ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -26,6 +31,7 @@ class LessonEntry {
     'teacher': teacher,
     'room': room,
     'substituteTeacher': substituteTeacher,
+    'period': period,
   };
 
   /// Ist diese Stunde eine Vertretung (eine Vertretungslehrkraft vorhanden)?
@@ -68,6 +74,66 @@ List<List<LessonEntry>> collapseConsecutiveSlots(
     }
   }
   return result;
+}
+
+/// Gruppen-Präfix eines Eintrags (z. B. "A" aus "A:L07P" / "A:KREP") oder
+/// null, wenn keiner vorhanden ist.
+String? groupPrefixOf(String value) {
+  final colon = value.indexOf(':');
+  if (colon <= 0) return null;
+  final prefix = value.substring(0, colon).trim();
+  if (RegExp(r'^[A-Za-z]$').hasMatch(prefix)) return prefix.toUpperCase();
+  return null;
+}
+
+/// Entfernt ein Gruppen-Präfix ("A:"/"B:") aus einem Wert, falls vorhanden.
+String stripGroupPrefix(String value) {
+  final colon = value.indexOf(':');
+  if (colon > 0) {
+    final prefix = value.substring(0, colon).trim();
+    if (RegExp(r'^[A-Za-z]$').hasMatch(prefix)) {
+      return value.substring(colon + 1).trim();
+    }
+  }
+  return value;
+}
+
+/// Eine zusammengefasste Unterrichts-Einheit (Einzel- oder Doppelstunde).
+///
+/// Doppelstunden werden anhand von Fach + Gruppe zusammengeführt, nicht
+/// anhand strikt identischer Einträge – so bleibt eine Stunde, in der nur
+/// eine der beiden Stunden vertreten ist, EINE Karte (Card 3).
+class LessonBlock {
+  const LessonBlock({
+    required this.subject,
+    required this.room,
+    required this.periods,
+    this.group,
+  });
+
+  /// Fach, ohne Gruppen-Präfix (z. B. "L07P" statt "A:L07P").
+  final String subject;
+
+  final String room;
+
+  /// Kursgruppe des Nutzers (z. B. "A") oder null bei ungruppierten Kursen.
+  final String? group;
+
+  /// Eine Stunde je Perioden-Schritt; bei Vertretungen trägt jeder Eintrag
+  /// seinen eigenen [LessonEntry.substituteTeacher].
+  final List<LessonEntry> periods;
+
+  /// Erste Stunde der Einheit (z. B. 7 bei "7+8").
+  int get firstPeriod => periods.isEmpty ? 0 : periods.first.period;
+
+  bool get hasSubstitution => periods.any((p) => p.isSubstitution);
+
+  /// Voll-Vertretung: alle Stunden der Einheit sind vertreten.
+  bool get isFullSubstitution =>
+      periods.isNotEmpty && periods.every((p) => p.isSubstitution);
+
+  /// Partielle Vertretung: mindestens eine, aber nicht alle Stunden vertreten.
+  bool get isPartialSubstitution => hasSubstitution && !isFullSubstitution;
 }
 
 class TimeSlot {

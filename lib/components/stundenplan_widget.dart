@@ -34,6 +34,7 @@ class StundenplanWidget extends StatefulWidget {
     this.clock,
     this.tickInterval,
     this.sessionId,
+    this.group,
   });
 
   /// Montag der anzuzeigenden Woche.
@@ -59,6 +60,10 @@ class StundenplanWidget extends StatefulWidget {
 
   /// Sitzungs-ID für virtueller-stundenplan.org.
   final String? sessionId;
+
+  /// Kursgruppe des Nutzers (z. B. "A"/"B"); null = alle Gruppen zeigen.
+  /// Steuert die Gruppen-Filterung (Regel 5).
+  final String? group;
 
   @override
   State<StundenplanWidget> createState() => _StundenplanWidgetState();
@@ -202,6 +207,7 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
                         tickInterval: widget.tickInterval,
                         teacherLookup: widget.teacherDirectory?.lookup,
                         sessionId: widget.sessionId,
+                        group: widget.group,
                         minHeight: constraints.maxHeight,
                       ),
                     ),
