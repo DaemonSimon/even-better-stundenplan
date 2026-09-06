@@ -3,31 +3,49 @@ class LessonEntry {
   final String teacher;
   final String room;
 
+  /// Vertretungslehrkraft (z. B. aus einer durchgestrichenen Zelle mit
+  /// `+ Vertreter`); `null` = normale Stunde ohne Vertretung.
+  final String? substituteTeacher;
+
   const LessonEntry({
     required this.lesson,
     required this.teacher,
     required this.room,
+    this.substituteTeacher,
   });
 
   factory LessonEntry.fromJson(Map<String, dynamic> json) => LessonEntry(
     lesson: json['lesson'] as String? ?? ' ',
     teacher: json['teacher'] as String? ?? ' ',
     room: json['room'] as String? ?? ' ',
+    substituteTeacher: json['substituteTeacher'] as String?,
   );
 
-  Map<String, dynamic> toJson() =>
-      {'lesson': lesson, 'teacher': teacher, 'room': room};
+  Map<String, dynamic> toJson() => {
+    'lesson': lesson,
+    'teacher': teacher,
+    'room': room,
+    'substituteTeacher': substituteTeacher,
+  };
+
+  /// Ist diese Stunde eine Vertretung (eine Vertretungslehrkraft vorhanden)?
+  bool get isSubstitution =>
+      substituteTeacher != null && substituteTeacher!.trim().isNotEmpty;
 
   bool get isEmpty =>
       lesson.trim().isEmpty && teacher.trim().isEmpty && room.trim().isEmpty;
 
   @override
   String toString() =>
-      'LessonEntry(lesson: $lesson, teacher: $teacher, room: $room)';
+      'LessonEntry(lesson: $lesson, teacher: $teacher, room: $room, '
+      'substituteTeacher: $substituteTeacher)';
 }
 
 bool sameLesson(LessonEntry a, LessonEntry b) =>
-    a.lesson == b.lesson && a.teacher == b.teacher && a.room == b.room;
+    a.lesson == b.lesson &&
+    a.teacher == b.teacher &&
+    a.room == b.room &&
+    a.substituteTeacher == b.substituteTeacher;
 
 /// Zwei Listen sind identisch, wenn jedes Element paarweise gleich ist.
 bool sameLessonList(List<LessonEntry> a, List<LessonEntry> b) {

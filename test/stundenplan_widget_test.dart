@@ -310,6 +310,116 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
   });
 
+  testWidgets('substitution card shows only the substitute in red', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_vertretung.html',
+    );
+    final teacherDirectory = TeacherDirectoryProvider(
+      initialEntries: const {
+        'BSMT': TeacherEntry(kuerzel: 'BSMT', fullName: 'Bernd Smit'),
+        'BDET': TeacherEntry(
+          kuerzel: 'BDET',
+          fullName: 'Birgit Deut',
+          photoUrl: 'https://start.bbs-papenburg.de/images/bdet.jpg',
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        repository,
+        day: 0, // Montag: Stunde 3+4 ist vertreten (BSMT -> BDET).
+        teacherDirectory: teacherDirectory,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Karte zeigt NUR den Vertreter, nicht das durchgestrichene Original.
+    expect(find.text('Birgit Deut'), findsOneWidget);
+    expect(find.text('BSMT'), findsNothing);
+
+    // Vertreter ist rot dargestellt.
+    final red = const Color(0xFFD32F2F);
+    final substituteText = tester.widget<Text>(find.text('Birgit Deut'));
+    expect(substituteText.style?.color, red);
+  });
+
+  testWidgets('tapping the substitute on the card opens its photo', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_vertretung.html',
+    );
+    final teacherDirectory = TeacherDirectoryProvider(
+      initialEntries: const {
+        'BDET': TeacherEntry(
+          kuerzel: 'BDET',
+          fullName: 'Birgit Deut',
+          photoUrl: 'https://start.bbs-papenburg.de/images/bdet.jpg',
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        repository,
+        day: 0,
+        teacherDirectory: teacherDirectory,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Birgit Deut'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.byIcon(Icons.person_off), findsOneWidget);
+  });
+
+  testWidgets('detail modal shows substitute left and struck original right', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_vertretung.html',
+    );
+    final teacherDirectory = TeacherDirectoryProvider(
+      initialEntries: const {
+        'BSMT': TeacherEntry(kuerzel: 'BSMT', fullName: 'Bernd Smit'),
+        'BDET': TeacherEntry(
+          kuerzel: 'BDET',
+          fullName: 'Birgit Deut',
+          photoUrl: 'https://start.bbs-papenburg.de/images/bdet.jpg',
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        repository,
+        day: 0,
+        teacherDirectory: teacherDirectory,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Karte (am Fach-Label) antippen -> Detail-Modal, das Fach SP.
+    await tester.tap(find.text('SP'));
+    await tester.pumpAndSettle();
+
+    // Modal ist offen, beide Lehrer sichtbar: Vertreter links (rot),
+    // Original rechts (durchgestrichen).
+    final substitute = tester.widget<Text>(find.text('Birgit Deut (BDET)'));
+    final original = tester.widget<Text>(find.text('Bernd Smit (BSMT)'));
+
+    expect(substitute.style?.color, const Color(0xFFD32F2F));
+    expect(original.style?.decoration, TextDecoration.lineThrough);
+  });
+
   testWidgets('shows the network error state', (tester) async {
     final repository = StundenplanRepository(
       sessionManager: sessionManager,

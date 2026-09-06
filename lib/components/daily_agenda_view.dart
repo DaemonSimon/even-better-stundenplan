@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../models/timetable.dart';
 import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
+import '../utils/teacher_photo.dart';
 import 'class_card.dart';
 import 'detail_modal.dart';
 
@@ -222,12 +223,20 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (final segment in segments)
-              Expanded(
-                child: KeyedSubtree(
-                  key: _rowKeys.putIfAbsent(segment.id, () => GlobalKey()),
-                  child: segment.child,
-                ),
-              ),
+              segment.isBreak
+                  ? KeyedSubtree(
+                      key: _rowKeys.putIfAbsent(segment.id, () => GlobalKey()),
+                      child: segment.child,
+                    )
+                  : Expanded(
+                      child: KeyedSubtree(
+                        key: _rowKeys.putIfAbsent(
+                          segment.id,
+                          () => GlobalKey(),
+                        ),
+                        child: segment.child,
+                      ),
+                    ),
           ],
         ),
       ),
@@ -377,6 +386,9 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
         minutesNow < time.startInMinutes;
     final urgentRemaining = time.startInMinutes - minutesNow;
 
+    final compact = lessons.length > 2;
+    final cardGap = compact ? 4.0 : 6.0;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
@@ -387,20 +399,17 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
             blockTime: time,
             isLive: isLive,
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: compact ? 8 : 12),
           Expanded(
             child: lessons.isEmpty
                 ? FreePeriodCard(blockTime: time)
                 : Row(
-                    // Karten füllen die volle Zeilenhöhe, damit die
-                    // Jetzt-Linie exakt an ihren Ober-/Unterkanten
-                    // anliegt (kein vertikales Zentrieren).
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (int i = 0; i < lessons.length; i++)
                         Expanded(
                           child: Padding(
-                            padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
+                            padding: EdgeInsets.only(left: i == 0 ? 0 : cardGap),
                             child: Stack(
                               clipBehavior: Clip.none,
                               fit: StackFit.passthrough,
@@ -412,8 +421,15 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
                                   teacherLabel: _teacherLabel(
                                     lessons[i].teacher,
                                   ),
+                                  substituteTeacherLabel: _substituteLabel(
+                                    lessons[i].substituteTeacher,
+                                  ),
+                                  onSubstituteTap: _substituteTap(
+                                    lessons[i].substituteTeacher,
+                                  ),
                                   isLive: isLive,
                                   isUrgent: urgent,
+                                  compact: compact,
                                   onTap: () => _openDetails(
                                     lessons[i],
                                     block,
@@ -470,6 +486,36 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     return split.prefix == null
         ? entry.fullName
         : '${split.prefix}: ${entry.fullName}';
+  }
+
+  /// Anzeigename der Vertretungslehrkraft (wie [_teacherLabel], aber für
+  /// [LessonEntry.substituteTeacher]); ohne Treffer das rohe Kürzel.
+  String? _substituteLabel(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final lookup = widget.teacherLookup;
+    final split = splitTeacherPrefix(raw);
+    final entry = lookup?.call(split.kuerzel);
+    if (entry == null) {
+      return split.prefix == null ? raw : raw;
+    }
+    return split.prefix == null
+        ? entry.fullName
+        : '${split.prefix}: ${entry.fullName}';
+  }
+
+  /// Öffnet das Portrait-Foto der Vertretungslehrkraft, falls vorhanden.
+  VoidCallback? _substituteTap(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final lookup = widget.teacherLookup;
+    final split = splitTeacherPrefix(raw);
+    final entry = lookup?.call(split.kuerzel);
+    final photoUrl = entry?.photoUrl;
+    if (photoUrl == null) return null;
+    return () => showTeacherPhotoDialog(
+      context,
+      _substituteLabel(raw) ?? raw,
+      photoUrl,
+    );
   }
 }
 

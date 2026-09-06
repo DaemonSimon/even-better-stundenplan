@@ -10,6 +10,7 @@ import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
 import '../utils/room_info.dart';
 import '../utils/subject_colors.dart';
+import '../utils/teacher_photo.dart';
 
 /// Öffnet die Detail-Modal (Bottom Sheet) für eine Unterrichtsstunde
 /// aus Tagesansicht oder Wochenmatrix.
@@ -31,7 +32,10 @@ void showLessonDetailModal(
         day: day,
         block: block,
         periods: periods ?? [block],
-        time: time ?? BlockSchedule.timeFor(block) ?? BlockSchedule.fallbackTimeFor(block),
+        time:
+            time ??
+            BlockSchedule.timeFor(block) ??
+            BlockSchedule.fallbackTimeFor(block),
         lessons: lessons,
         teacherLookup: teacherLookup,
         sessionId: sessionId,
@@ -85,19 +89,21 @@ class _LessonDetailSheet extends StatelessWidget {
 
   String get _summary {
     return lessons
-        .map(
-          (lesson) =>
-              '${lesson.lesson.trim()} · ${lesson.teacher.trim()} · '
-              '${lesson.room.trim()} · $_periodLabel · $_timeText',
-        )
+        .map((lesson) {
+          final teachers = lesson.isSubstitution
+              ? '${lesson.substituteTeacher?.trim()} statt ${lesson.teacher.trim()}'
+              : lesson.teacher.trim();
+          return '${lesson.lesson.trim()} · $teachers · '
+              '${lesson.room.trim()} · $_periodLabel · $_timeText';
+        })
         .join('\n');
   }
 
   void _copy(BuildContext context) {
     Clipboard.setData(ClipboardData(text: _summary));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Kopiert')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Kopiert')));
   }
 
   void _openHomework(BuildContext context) {
@@ -120,7 +126,7 @@ class _LessonDetailSheet extends StatelessWidget {
     final dayName = DateFormat('EEEE, dd.MM.yyyy').format(day.date);
 
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -174,10 +180,7 @@ class _LessonDetailSheet extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             for (final lesson in lessons)
-              _LessonInfo(
-                lesson: lesson,
-                teacherLookup: teacherLookup,
-              ),
+              _LessonInfo(lesson: lesson, teacherLookup: teacherLookup),
             const SizedBox(height: 8),
             Divider(color: scheme.outlineVariant),
             Wrap(
@@ -215,7 +218,9 @@ class _LessonDetailSheet extends StatelessWidget {
 ///
 /// Die Lehrkraft wird über [teacherLookup] zum vollen Namen aufgelöst
 /// (Kürzel in Klammern); die E-Mail-Adresse aus dem Kollegium wird
-/// angezeigt und per Tap kopiert.
+/// angezeigt und per Tap kopiert. Bei einer Vertretung stehen links die
+/// Vertretungslehrkraft (rot) und rechts der eigentliche Lehrer (durch-
+/// gestrichen) – beide per Tap auf ihr Portrait-Foto klickbar.
 class _LessonInfo extends StatelessWidget {
   const _LessonInfo({required this.lesson, this.teacherLookup});
 
@@ -226,126 +231,165 @@ class _LessonInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final muted = theme.textTheme.bodyMedium?.copyWith(
-      color: scheme.onSurface,
-    );
+    final muted = theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface);
 
     final teacher = lesson.teacher.trim();
     final room = lesson.room.trim();
-    final split = splitTeacherPrefix(teacher);
-    final entry = teacherLookup?.call(split.kuerzel);
-    final photoUrl = entry?.photoUrl;
 
-    final teacherDisplay = entry != null && entry.fullName != split.kuerzel
-        ? split.prefix == null
-            ? '${entry.fullName} ($teacher)'
-            : '${split.prefix}: ${entry.fullName} (${split.kuerzel})'
-        : teacher;
+    final rows = <Widget>[];
+
+    if (lesson.isSubstitution) {
+      final substitute = (lesson.substituteTeacher ?? '').trim();
+      rows.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _TeacherLine(
+                name: _displayFor(substitute),
+                photoTap: _photoTap(context, substitute),
+                color: _substituteRed,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _TeacherLine(
+                name: _displayFor(teacher),
+                photoTap: _photoTap(context, teacher),
+                strikethrough: true,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (teacher.isNotEmpty) {
+      rows.add(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _TeacherLine(
+            name: _displayFor(teacher),
+            photoTap: _photoTap(context, teacher),
+          ),
+        ),
+      );
+    }
+
+    if (teacher.isNotEmpty && room.isNotEmpty) {
+      rows.add(const SizedBox(height: 8));
+    }
+    if (room.isNotEmpty) {
+      rows.add(
+        InkWell(
+          onTap: () => showRoomInfoDialog(context, room),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.meeting_room,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(room, style: muted)),
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (teacher.isNotEmpty)
-            InkWell(
-              onTap: photoUrl == null
-                  ? null
-                  : () => _showTeacherPhoto(context, teacherDisplay, photoUrl),
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  children: [
-                    Icon(Icons.person, size: 18, color: scheme.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(teacherDisplay, style: muted),
-                    ),
-                    if (photoUrl != null) ...[
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.badge_outlined,
-                        size: 16,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          if (teacher.isNotEmpty && room.isNotEmpty)
-            const SizedBox(height: 8),
-          if (room.isNotEmpty)
-            InkWell(
-              onTap: () => showRoomInfoDialog(context, room),
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.meeting_room,
-                      size: 18,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(room, style: muted)),
-                    Icon(
-                      Icons.info_outline,
-                      size: 14,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
+        children: rows,
       ),
     );
   }
 
-  /// Zeigt das Portrait-Foto der Lehrkraft in einem Dialog.
-  void _showTeacherPhoto(
-    BuildContext context,
-    String teacherDisplay,
-    String photoUrl,
-  ) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  photoUrl,
-                  width: 240,
-                  height: 240,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => SizedBox(
-                    width: 240,
-                    height: 240,
-                    child: Icon(
-                      Icons.person_off,
-                      size: 64,
-                      color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
+  /// Anzeigename der Lehrkraft: voller Name, geprefixtes Kürzel bleibt
+  /// ("A: Helga Müller (KREP)"); ohne Treffer das rohe Kürzel.
+  String _displayFor(String raw) {
+    if (raw.isEmpty) return raw;
+    final split = splitTeacherPrefix(raw);
+    final entry = teacherLookup?.call(split.kuerzel);
+    if (entry == null || entry.fullName == split.kuerzel) return raw;
+    return split.prefix == null
+        ? '${entry.fullName} ($raw)'
+        : '${split.prefix}: ${entry.fullName} (${split.kuerzel})';
+  }
+
+  /// Öffnet das Portrait-Foto zur Lehrkraft, falls ein Foto existiert.
+  VoidCallback? _photoTap(BuildContext context, String raw) {
+    if (raw.isEmpty) return null;
+    final split = splitTeacherPrefix(raw);
+    final entry = teacherLookup?.call(split.kuerzel);
+    final photoUrl = entry?.photoUrl;
+    if (photoUrl == null) return null;
+    return () => showTeacherPhotoDialog(context, _displayFor(raw), photoUrl);
+  }
+}
+
+/// Rot für die Vertretungslehrkraft (auffällig auf Pastell-Hintergründen).
+const Color _substituteRed = Color(0xFFD32F2F);
+
+/// Eine Lehrkraft-Zeile: Icon, Name – bei Vertretung rot und/oder durch-
+/// gestrichen (Original), per Tap das Portrait-Foto (falls vorhanden).
+class _TeacherLine extends StatelessWidget {
+  const _TeacherLine({
+    required this.name,
+    this.photoTap,
+    this.color,
+    this.strikethrough = false,
+  });
+
+  final String name;
+  final VoidCallback? photoTap;
+  final Color? color;
+  final bool strikethrough;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final baseColor = color ?? scheme.onSurface;
+
+    return InkWell(
+      onTap: photoTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+        child: Row(
+          children: [
+            Icon(Icons.person, size: 18, color: baseColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                name,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: baseColor,
+                  decoration: strikethrough ? TextDecoration.lineThrough : null,
+                  decorationThickness: strikethrough ? 1.2 : null,
+                  decorationColor: scheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                teacherDisplay,
-                style: Theme.of(dialogContext).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            ),
+            if (photoTap != null) ...[
+              const SizedBox(width: 4),
+              Icon(
+                Icons.badge_outlined,
+                size: 16,
+                color: scheme.onSurfaceVariant,
               ),
             ],
-          ),
+          ],
         ),
       ),
     );

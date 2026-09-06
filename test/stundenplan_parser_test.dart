@@ -109,5 +109,68 @@ void main() {
         p2.lessons.map((e) => e).toList(),
       ), isTrue);
     });
+
+    test('combines teacher-only LK cells with separate Fach/Raum tables', () {
+      final week = parser.parseWeeklyTimetable(
+        fixture('week_teachers_only.html'),
+      );
+
+      // Montag (Index 0), Stunde 1: TUWT + DE + A116.
+      final mo1 = week[0].firstWhere((s) => s.period == 1);
+      expect(mo1.lessons.single.teacher, 'TUWT');
+      expect(mo1.lessons.single.lesson, 'DE');
+      expect(mo1.lessons.single.room, 'A116');
+
+      // Dienstag (Index 1), Stunde 1: HYWT + L01P + C019.
+      final di1 = week[1].firstWhere((s) => s.period == 1);
+      expect(di1.lessons.single.teacher, 'HYWT');
+      expect(di1.lessons.single.lesson, 'L01P');
+      expect(di1.lessons.single.room, 'C019');
+    });
+
+    test('a substitution becomes one entry keeping the original teacher', () {
+      final week = parser.parseWeeklyTimetable(
+        fixture('week_vertretung.html'),
+      );
+
+      // Montag (Index 0), Stunde 3: <del>BSMT</del> + BDET, Fach SP, Raum T3.
+      final mo3 = week[0].firstWhere((s) => s.period == 3);
+      expect(mo3.lessons.length, 1);
+      final lesson = mo3.lessons.single;
+      expect(lesson.teacher, 'BSMT'); // eigentlicher Lehrer
+      expect(lesson.substituteTeacher, 'BDET'); // Vertreter
+      expect(lesson.lesson, 'SP');
+      expect(lesson.room, 'T3');
+      expect(lesson.isSubstitution, isTrue);
+    });
+
+    test('a substitution double hour stays identical for collapsing', () {
+      final week = parser.parseWeeklyTimetable(
+        fixture('week_vertretung.html'),
+      );
+      final mo3 = week[0].firstWhere((s) => s.period == 3);
+      final mo4 = week[0].firstWhere((s) => s.period == 4);
+      expect(sameLessonList(mo3.lessons, mo4.lessons), isTrue);
+    });
+
+    test('substitution in a parallel course keeps both tracks', () {
+      final week = parser.parseWeeklyTimetable(
+        fixture('week_vertretung.html'),
+      );
+
+      // Dienstag (Index 1), Stunde 8: A normal, B vertreten (B:SYEP -> B:KREP).
+      final di8 = week[1].firstWhere((s) => s.period == 8);
+      expect(di8.lessons.length, 2);
+      expect(di8.lessons[0].teacher, 'A:KREP');
+      expect(di8.lessons[0].substituteTeacher, isNull);
+      expect(di8.lessons[0].lesson, 'A:L07P');
+      expect(di8.lessons[0].room, 'A:C003');
+
+      expect(di8.lessons[1].teacher, 'B:SYEP');
+      expect(di8.lessons[1].substituteTeacher, 'B:KREP');
+      expect(di8.lessons[1].lesson, 'B:L07P');
+      expect(di8.lessons[1].room, 'B:C008');
+      expect(di8.lessons[1].isSubstitution, isTrue);
+    });
   });
 }

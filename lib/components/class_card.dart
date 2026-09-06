@@ -13,6 +13,10 @@ String _formatTime(TimeOfDay time) =>
 /// Amber-Farbe des "Urgency"-Zustands (Balken links an der Karte).
 const Color _urgencyAmber = Color(0xFFFFA000);
 
+/// Rot für die Vertretungslehrkraft auf der Karte (auffällig auf den
+/// Pastell-Hintergründen) und im Detail-Modal.
+const Color _substituteRed = Color(0xFFD32F2F);
+
 /// Textfarbe im Urgency-Badge: dunkel für hohen Kontrast.
 const Color _urgencyText = Color(0xDE000000);
 
@@ -69,8 +73,11 @@ class ClassCard extends StatelessWidget {
     required this.block,
     required this.blockTime,
     this.teacherLabel,
+    this.substituteTeacherLabel,
+    this.onSubstituteTap,
     this.isLive = false,
     this.isUrgent = false,
+    this.compact = false,
     this.onTap,
   });
 
@@ -82,10 +89,21 @@ class ClassCard extends StatelessWidget {
   /// fällt auf [LessonEntry.teacher] zurück.
   final String? teacherLabel;
 
+  /// Anzeigename der Vertretungslehrkraft; fällt auf
+  /// [LessonEntry.substituteTeacher] zurück.
+  final String? substituteTeacherLabel;
+
+  /// Öffnet das Portrait-Foto der Vertretungslehrkraft (falls vorhanden).
+  final VoidCallback? onSubstituteTap;
+
   final bool isLive;
 
   /// Stunde beginnt gleich: dezenter Amber-Balken links statt Glow.
   final bool isUrgent;
+
+  /// Kompakte Darstellung bei vielen parallelen Kursen (kleineres
+  /// Innen-Padding, kleinere Schrift), damit nichts überläuft.
+  final bool compact;
 
   final VoidCallback? onTap;
 
@@ -97,12 +115,19 @@ class ClassCard extends StatelessWidget {
     final lessonText = lesson.lesson.trim();
     final teacherText = (teacherLabel ?? lesson.teacher).trim();
     final roomText = lesson.room.trim();
+    final substitute = lesson.substituteTeacher?.trim() ?? '';
+    final substituteText = lesson.isSubstitution
+        ? (substituteTeacherLabel ?? substitute).trim()
+        : '';
 
     final border = isLive
         ? Border.all(color: scheme.primary, width: 1.5)
         : isUrgent
         ? const Border(left: BorderSide(color: _urgencyAmber, width: 4))
         : null;
+
+    final hPadding = compact ? 10.0 : 16.0;
+    final vPadding = compact ? 10.0 : 14.0;
 
     return Container(
       decoration: BoxDecoration(
@@ -130,7 +155,7 @@ class ClassCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                  padding: EdgeInsets.fromLTRB(hPadding, vPadding, hPadding, vPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -142,7 +167,7 @@ class ClassCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleMedium?.copyWith(
-                                fontSize: 18,
+                                fontSize: compact ? 15 : 18,
                                 fontWeight: FontWeight.bold,
                                 color: scheme.onSurface,
                               ),
@@ -150,13 +175,50 @@ class ClassCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (teacherText.isNotEmpty) ...[
+                      if (lesson.isSubstitution) ...[
+                        const SizedBox(height: 4),
+                        InkWell(
+                          onTap: onSubstituteTap,
+                          borderRadius: BorderRadius.circular(6),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.swap_horiz,
+                                size: 14,
+                                color: _substituteRed,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  substituteText.isEmpty ? '—' : substituteText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontSize: compact ? 12 : null,
+                                    color: _substituteRed,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (onSubstituteTap != null) ...[
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.badge_outlined,
+                                  size: 13,
+                                  color: _substituteRed.withValues(alpha: 0.8),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ] else if (teacherText.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
                           teacherText,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
+                            fontSize: compact ? 12 : null,
                             color: scheme.onSurface.withValues(alpha: 0.8),
                           ),
                         ),
@@ -175,6 +237,7 @@ class ClassCard extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontSize: compact ? 12 : null,
                                     color: scheme.onSurface.withValues(
                                       alpha: 0.8,
                                     ),
