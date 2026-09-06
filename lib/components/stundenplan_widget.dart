@@ -193,12 +193,27 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
               final dayIndex = page;
               return LayoutBuilder(
                 builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    physics: const ClampingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                  // Die Tagesansicht ist fest im Viewport verankert (kein
+                  // Scrollen). Damit auch ein langer (8-Stunden-)Tag vollständig
+                  // sichtbar bleibt, wird der gesamte Tag gleichmäßig
+                  // herunterskaliert, bis er in die verfügbare Höhe passt
+                  // (BoxFit.scaleDown skaliert NIE hoch). Kurze Tage bleiben
+                  // 1:1 und strecken ihre Zeilen wie bisher bis zur Mindesthöhe.
+                  //
+                  // Wichtig: FittedBox gibt dem Kind unbegrenzte Constraints.
+                  // Das ConstrainedBox (maxWidth) darunter begrenzt die Breite
+                  // wieder, damit die Expanded-Zeilen/Card-Rows der Tagesansicht
+                  // eine finite Breite haben (sonst "BoxConstraints forces an
+                  // infinite width"). Die eigentliche natuerliche Hoehe misst
+                  // das FittedBox selbst in einem einzigen Layout-Durchlauf –
+                  // keine Mess-Schleife, keine setState-Rebuilds.
+                  return FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.topCenter,
+                    clipBehavior: Clip.none,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minHeight: constraints.maxHeight,
+                        maxWidth: constraints.maxWidth - 24,
                       ),
                       child: DailyAgendaView(
                         day: weekDays[dayIndex],
