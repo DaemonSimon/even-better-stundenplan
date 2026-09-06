@@ -176,9 +176,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
               BlockSchedule.lunchEnd,
             ),
             isBreak: true,
-            child: LunchDivider(
-              countdownMinutes: lunchActive ? lunchEndM - nowMinutes : null,
-            ),
+            child: const LunchDivider(),
           ),
         );
       }

@@ -338,15 +338,8 @@ class FreePeriodCard extends StatelessWidget {
 }
 
 /// Horizontaler Trenner für die Mittagspause (13:15 – 13:45).
-///
-/// Während die Pause läuft, zeigt ein kleines Countdown-Pill an, wann
-/// sie endet – kein Aufleuchten des Trenners, die Information zählt.
 class LunchDivider extends StatelessWidget {
-  const LunchDivider({super.key, this.countdownMinutes});
-
-  /// Läuft die Mittagspause gerade? Dann erscheint neben dem Text ein
-  /// "Endet in Xm"-Countdown (null = kein Countdown).
-  final int? countdownMinutes;
+  const LunchDivider({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -381,10 +374,7 @@ class LunchDivider extends StatelessWidget {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-                  if (countdownMinutes != null) ...[
-                    const SizedBox(width: 8),
-                    _LunchCountdownPill(minutes: countdownMinutes!),
-                  ],
+
                 ],
               ),
             ),
@@ -396,35 +386,4 @@ class LunchDivider extends StatelessWidget {
   }
 }
 
-/// Countdown-Pill während der Mittagspause: "Endet in Xm".
-class _LunchCountdownPill extends StatelessWidget {
-  const _LunchCountdownPill({required this.minutes});
 
-  final int minutes;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: _urgencyAmber,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.timer_outlined, size: 12, color: _urgencyText),
-          const SizedBox(width: 4),
-          Text(
-            'Endet in ${minutes}m',
-            style: const TextStyle(
-              color: _urgencyText,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
