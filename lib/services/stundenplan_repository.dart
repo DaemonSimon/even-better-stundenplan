@@ -45,6 +45,8 @@ class StundenplanRepository extends ChangeNotifier {
 
   bool _reauthRunning = false;
 
+  void refresh() => notifyListeners();
+
   Future<TimetableResult> getTimetable(
     String dateString, {
     required bool weeklyMode,

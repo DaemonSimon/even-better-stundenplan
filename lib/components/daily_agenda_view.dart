@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/timetable.dart';
+import '../pages/calendar_day_page.dart';
+import '../services/homework_attachments.dart';
+import '../services/iserv_calendar.dart';
+import '../services/iserv_mapping.dart';
 import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
 import 'class_card.dart';
@@ -31,7 +35,7 @@ class DailyAgendaView extends StatefulWidget {
     this.clock,
     this.tickInterval,
     this.teacherLookup,
-    this.sessionId,
+    this.calendarEvents = const [],
     this.minHeight = 0,
     this.group,
   });
@@ -51,8 +55,7 @@ class DailyAgendaView extends StatefulWidget {
   /// Kollegiums-Nachschlagefunktion: Kürzel -> voller Name / E-Mail.
   final TeacherLookup? teacherLookup;
 
-  /// Sitzungs-ID für virtueller-stundenplan.org.
-  final String? sessionId;
+  final List<IservCalendarEvent> calendarEvents;
 
   /// Mindesthöhe der Tagesansicht in Pixeln (z. B. die verfügbare
   /// Viewport-Höhe). Reicht der Inhalt nicht bis hierher (Tag mit wenigen
@@ -82,6 +85,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
   /// Gemessene Höhen der Zeilen – Grundlage für die Position der
   /// "Jetzt"-Linie.
   Map<String, double> _rowHeights = {};
+  List<TempAssignment> _homework = const [];
 
   DateTime _readClock() => (widget.clock ?? DateTime.now)();
 
@@ -90,6 +94,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     super.initState();
     _now = _readClock();
     _updateTimer();
+    _loadHomework();
   }
 
   @override
@@ -101,6 +106,23 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     if (oldWidget.isToday != widget.isToday ||
         oldWidget.tickInterval != widget.tickInterval) {
       _updateTimer();
+    }
+    if (oldWidget.day.date != widget.day.date) _loadHomework();
+  }
+
+  Future<void> _loadHomework() async {
+    try {
+      final expired = await TempAssignmentStore().purgeCompleted();
+      for (final task in expired) {
+        await HomeworkAttachments.deleteOwned(task.imagePaths);
+      }
+      final tasks = await TempAssignmentStore().load();
+      if (!mounted) return;
+      setState(() => _homework = tasks);
+    } catch (error) {
+      debugPrint(
+        'Lokale Hausaufgaben-Badges konnten nicht geladen werden: $error',
+      );
     }
   }
 
@@ -365,6 +387,64 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     ];
   }
 
+  bool _hasHomework(LessonBlock block, List<int> periods) {
+    final date = DateFormat('yyyy-MM-dd').format(widget.day.date);
+    final subject = stripGroupPrefix(block.subject).trim().toLowerCase();
+    return _homework.any(
+      (task) =>
+          task.completedAt == null &&
+          task.lessonDate == date &&
+          stripGroupPrefix(task.subject).trim().toLowerCase() == subject &&
+          task.periods.any(periods.contains),
+    );
+  }
+
+  List<IservCalendarEvent> _eventsForPeriods(
+    List<int> periods,
+    BlockTime blockTime,
+  ) {
+    final date = widget.day.date;
+    final start = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      blockTime.start.hour,
+      blockTime.start.minute,
+    );
+    final end = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      blockTime.end.hour,
+      blockTime.end.minute,
+    );
+    return widget.calendarEvents.where((event) {
+      if (_isAllDay(event) && _eventOccursOn(event, date)) {
+        return true;
+      }
+      final eventEnd = event.end ?? event.start.add(const Duration(minutes: 1));
+      return event.start.isBefore(end) && eventEnd.isAfter(start);
+    }).toList();
+  }
+
+  List<IservCalendarEvent> _eventsForDay() => widget.calendarEvents
+      .where((event) => _eventOccursOn(event, widget.day.date))
+      .toList();
+
+  bool _eventOccursOn(IservCalendarEvent event, DateTime date) {
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+    final eventEnd = event.end ?? event.start;
+    return event.start.isBefore(endOfDay) &&
+        (eventEnd.isAfter(startOfDay) ||
+            event.start.isAtSameMomentAs(startOfDay));
+  }
+
+  bool _isAllDay(IservCalendarEvent event) =>
+      event.start.hour == 0 &&
+      event.start.minute == 0 &&
+      (event.end == null || event.end!.difference(event.start).inHours >= 23);
+
   Widget _buildPeriodRow({
     required int block,
     required List<int> periods,
@@ -395,6 +475,9 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
               label: periods.join('+'),
               blockTime: time,
               isLive: false,
+              events: _eventsForPeriods(periods, time),
+              day: widget.day.date,
+              dayEvents: _eventsForDay(),
             ),
             const SizedBox(width: 12),
             Expanded(child: FreePeriodCard(blockTime: time)),
@@ -428,6 +511,9 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
             label: periods.join('+'),
             blockTime: time,
             isLive: isLive,
+            events: _eventsForPeriods(periods, time),
+            day: widget.day.date,
+            dayEvents: _eventsForDay(),
           ),
           SizedBox(width: compact ? 8 : 12),
           Expanded(
@@ -450,8 +536,31 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
                             compact: compact,
                             stripGroup: widget.group != null,
                             teacherLookup: widget.teacherLookup,
-                            onTap: () => _openDetails(shown[i], block, periods, time),
+                            hasHomework: _hasHomework(
+                              shown[i],
+                              shown[i].periods.map((p) => p.period).toList(),
+                            ),
+                            onTap: () =>
+                                _openDetails(shown[i], block, periods, time),
                           ),
+                          if (_hasHomework(
+                            shown[i],
+                            shown[i].periods
+                                .map((period) => period.period)
+                                .toList(),
+                          ))
+                            const Positioned(
+                              top: 4,
+                              left: 5,
+                              child: Tooltip(
+                                message: 'Hausaufgaben vorhanden',
+                                child: Icon(
+                                  Icons.assignment_outlined,
+                                  size: 17,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
                           if (urgent)
                             Positioned(
                               top: -12,
@@ -475,10 +584,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
   /// Baut aus den Perioden eines Blocks die zusammengefassten
   /// [LessonBlock]e. Doppelstunden werden anhand von Fach + Gruppe
   /// zusammengeführt, nicht anhand strikt identischer Einträge.
-  List<LessonBlock> _buildBlocks(
-    Map<int, TimeSlot> slots,
-    List<int> periods,
-  ) {
+  List<LessonBlock> _buildBlocks(Map<int, TimeSlot> slots, List<int> periods) {
     final lessons1 = _nonEmptyLessonsOf(slots, periods.first);
     final lessons2 = periods.length > 1
         ? _nonEmptyLessonsOf(slots, periods[1])
@@ -530,11 +636,7 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
 
   /// Sind zwei aufeinanderfolgende Perioden derselbe Kurs (Fach + Gruppe),
   /// werden sie zu einer Doppelstunde zusammengeführt (Regel 4)?
-  bool _sameCourseInBoth(
-    Map<int, TimeSlot> slots,
-    int p1,
-    int p2,
-  ) {
+  bool _sameCourseInBoth(Map<int, TimeSlot> slots, int p1, int p2) {
     final a = _nonEmptyLessonsOf(slots, p1);
     final b = _nonEmptyLessonsOf(slots, p2);
     if (a.isEmpty || b.isEmpty || a.length != b.length) return false;
@@ -596,8 +698,24 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
       time: time,
       lessons: lessons,
       teacherLookup: widget.teacherLookup,
-      sessionId: widget.sessionId,
       stripGroup: widget.group != null,
+      homeworkPeriods: lessonBlock.periods
+          .map((period) => period.period)
+          .toSet()
+          .toList(),
+      onHomeworkChanged: () => unawaited(_loadHomework()),
+      calendarEvents: widget.calendarEvents.where((event) {
+        final dayStart = DateTime(
+          widget.day.date.year,
+          widget.day.date.month,
+          widget.day.date.day,
+        );
+        final dayEnd = dayStart.add(const Duration(days: 1));
+        final eventEnd = event.end ?? event.start;
+        return event.start.isBefore(dayEnd) &&
+            (eventEnd.isAfter(dayStart) ||
+                event.start.isAtSameMomentAs(dayStart));
+      }).toList(),
     );
   }
 
@@ -688,11 +806,17 @@ class _TimeColumn extends StatelessWidget {
     required this.label,
     required this.blockTime,
     required this.isLive,
+    required this.day,
+    required this.dayEvents,
+    this.events = const [],
   });
 
   final String label;
   final BlockTime blockTime;
   final bool isLive;
+  final List<IservCalendarEvent> events;
+  final DateTime day;
+  final List<IservCalendarEvent> dayEvents;
 
   static String _format(TimeOfDay time) =>
       DateFormat('HH:mm').format(DateTime(0, 1, 1, time.hour, time.minute));
@@ -730,6 +854,35 @@ class _TimeColumn extends StatelessWidget {
                 ),
               ],
             ),
+            if (events.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Tooltip(
+                  message: 'Kalendereinträge anzeigen',
+                  child: IconButton(
+                    key: const ValueKey('calendar-day-events'),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 22,
+                      minHeight: 20,
+                    ),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CalendarDayPage(
+                          day: day,
+                          events: dayEvents,
+                        ),
+                      ),
+                    ),
+                    icon: Icon(
+                      Icons.event_outlined,
+                      size: 15,
+                      color: scheme.tertiary,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 5),
             _MaskedTimeText(
               text: _format(blockTime.start),

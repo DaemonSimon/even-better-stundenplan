@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:better_stundenplan/components/class_card.dart';
@@ -12,6 +13,7 @@ import 'package:better_stundenplan/components/stundenplan_widget.dart';
 import 'package:better_stundenplan/models/timetable.dart';
 import 'package:better_stundenplan/providers/teacher_directory_provider.dart';
 import 'package:better_stundenplan/services/group_preference.dart';
+import 'package:better_stundenplan/services/iserv_calendar.dart';
 import 'package:better_stundenplan/services/secure_storage.dart';
 import 'package:better_stundenplan/services/session_manager.dart';
 import 'package:better_stundenplan/services/stundenplan_api.dart';
@@ -76,6 +78,7 @@ Widget buildTestWidget(
   DateTime Function()? clock,
   TeacherDirectoryProvider? teacherDirectory,
   String? group,
+  List<IservCalendarEvent> calendarEvents = const [],
 }) {
   return MaterialApp(
     home: Scaffold(
@@ -88,6 +91,7 @@ Widget buildTestWidget(
         teacherDirectory: teacherDirectory,
         clock: clock,
         group: group,
+        calendarEvents: calendarEvents,
       ),
     ),
   );
@@ -111,6 +115,10 @@ StundenplanRepository fixtureRepository(
 void main() {
   late SessionManager sessionManager;
 
+  setUpAll(() async {
+    await initializeDateFormatting('de_DE');
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     final storage = InMemoryCredentialStorage()..sessionId = 'valid-session';
@@ -132,18 +140,21 @@ void main() {
     await tester.pumpWidget(buildTestWidget(repository));
     await tester.pumpAndSettle();
 
-    // Block 1 = Doppelstunde Ma (Stunde 1+2) -> EINE Karte, 90 Minuten.
-    expect(find.text('Ma'), findsOneWidget);
+    // Block 1 = Doppelstunde Mathe (Stunde 1+2) -> EINE Karte, 90 Minuten.
+    expect(find.text('Mathe'), findsOneWidget);
     expect(find.text('Müller'), findsWidgets);
     expect(find.text('101'), findsOneWidget);
     expect(find.text('1+2'), findsOneWidget);
     expect(find.text('08:10'), findsOneWidget);
     expect(find.text('09:40'), findsOneWidget);
 
-    // Einzelstunden 3 (De) und 4 (En) mit eigenen 45-Minuten-Zeiten.
-    expect(find.text('De'), findsNWidgets(2)); // Stunde 3 und 8
+    // Einzelstunden 3 (Deutsch) und 4 (Englisch) mit eigenen 45-Minuten-Zeiten.
+    expect(find.text('Deutsch'), findsNWidgets(2)); // Stunde 3 und 8
     expect(find.text('102'), findsNWidgets(2));
-    expect(find.text('En'), findsNWidgets(2)); // Stunde 4 und Doppelstunde 5+6
+    expect(
+      find.text('Englisch'),
+      findsNWidgets(2),
+    ); // Stunde 4 und Doppelstunde 5+6
     expect(find.text('3'), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
     expect(find.text('10:00'), findsOneWidget);
@@ -152,9 +163,9 @@ void main() {
       findsNWidgets(2),
     ); // Ende Stunde 3, Beginn Stunde 4
 
-    // Block 3 = Doppelstunde mit Parallelkursen (En + PO) -> eine Zeile.
+    // Block 3 = Doppelstunde mit Parallelkursen (Englisch + Politik) -> eine Zeile.
     expect(find.text('5+6'), findsOneWidget);
-    expect(find.textContaining('PO'), findsOneWidget);
+    expect(find.text('Politik [Kl. 10]'), findsOneWidget);
     expect(find.text('201'), findsNWidgets(2));
     expect(find.text('202'), findsOneWidget);
 
@@ -190,7 +201,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Ma (Block 1) und PO (Block 3) haben Müller -> 2 volle Namen.
+      // Mathe (Block 1) und Politik (Block 3) haben Müller -> 2 volle Namen.
       expect(find.text('Helga Müller'), findsNWidgets(2));
       expect(find.text('Müller'), findsNothing);
       expect(find.text('Peter Schmidt'), findsNWidgets(2));
@@ -199,7 +210,7 @@ void main() {
       expect(find.text('Weber'), findsNothing);
 
       // Detail-Modal: voller Name mit Kürzel in Klammern.
-      await tester.tap(find.text('Ma'));
+      await tester.tap(find.text('Mathe'));
       await tester.pumpAndSettle();
 
       expect(find.text('Helga Müller (Müller)'), findsOneWidget);
@@ -247,7 +258,7 @@ void main() {
     expect(find.text('Helga Müller'), findsOneWidget);
 
     // Detail-Modal zeigt Präfix + vollen Namen (Kürzel ohne Präfix).
-    await tester.tap(find.text('Ma'));
+    await tester.tap(find.text('Mathe'));
     await tester.pumpAndSettle();
     expect(find.text('A: Maren Krep (KREP)'), findsOneWidget);
   });
@@ -255,7 +266,10 @@ void main() {
   testWidgets('group filter shows only the chosen group and strips prefixes', (
     tester,
   ) async {
-    final repository = fixtureRepository(sessionManager, 'week_with_groups.html');
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_groups.html',
+    );
     final teacherDirectory = TeacherDirectoryProvider(
       initialEntries: const {
         'KREP': TeacherEntry(kuerzel: 'KREP', fullName: 'Maren Krep'),
@@ -273,8 +287,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('A: Maren Krep'), findsOneWidget);
     expect(find.text('B: Knut Krause'), findsOneWidget);
-    expect(find.text('Ma'), findsOneWidget);
-    expect(find.text('En'), findsOneWidget);
+    expect(find.text('Mathe'), findsOneWidget);
+    expect(find.text('Englisch'), findsOneWidget);
 
     // Gruppe A: nur A-Kurs, Präfix aus Fach/Lehrkraft entfernt (Regel 5).
     await tester.pumpWidget(base('A'));
@@ -282,21 +296,24 @@ void main() {
     expect(find.text('Maren Krep'), findsOneWidget);
     expect(find.text('A: Maren Krep'), findsNothing);
     expect(find.text('B: Knut Krause'), findsNothing);
-    expect(find.text('En'), findsNothing);
-    expect(find.text('Ma'), findsOneWidget);
+    expect(find.text('Englisch'), findsNothing);
+    expect(find.text('Mathe'), findsOneWidget);
 
     // Gruppe B: nur B-Kurs.
     await tester.pumpWidget(base('B'));
     await tester.pumpAndSettle();
     expect(find.text('Knut Krause'), findsOneWidget);
     expect(find.text('A: Maren Krep'), findsNothing);
-    expect(find.text('Ma'), findsNothing);
+    expect(find.text('Mathe'), findsNothing);
   });
 
   testWidgets('detail modal strips group prefixes when a group is active', (
     tester,
   ) async {
-    final repository = fixtureRepository(sessionManager, 'week_with_groups.html');
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_groups.html',
+    );
     final teacherDirectory = TeacherDirectoryProvider(
       initialEntries: const {
         'KREP': TeacherEntry(kuerzel: 'KREP', fullName: 'Maren Krep'),
@@ -312,7 +329,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Ma'));
+    await tester.tap(find.text('Mathe'));
     await tester.pumpAndSettle();
 
     expect(find.text('Maren Krep (KREP)'), findsOneWidget);
@@ -332,38 +349,41 @@ void main() {
     expect(await store.getGroup(), isNull);
   });
 
-  testWidgets('group settings sheet offers flat A/B buttons and reports the choice', (
-    tester,
-  ) async {
-    String? chosen;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showGroupSettingsSheet(
-                context,
-                group: 'A',
-                onChanged: (value) => chosen = value,
+  testWidgets(
+    'group settings sheet offers flat A/B buttons and reports the choice',
+    (tester) async {
+      String? chosen;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showGroupSettingsSheet(
+                  context,
+                  group: 'A',
+                  onChanged: (value) => chosen = value,
+                ),
+                child: const Text('open'),
               ),
-              child: const Text('open'),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Einstellungen'), findsOneWidget);
-    expect(find.text('Kursgruppe'), findsOneWidget);
+      expect(find.text('Einstellungen'), findsOneWidget);
+      expect(find.text('Kursgruppe'), findsOneWidget);
+      expect(find.text('Hausaufgaben'), findsOneWidget);
+      expect(find.text('Kalendertermine'), findsOneWidget);
 
-    await tester.tap(find.text('B'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('B'));
+      await tester.pumpAndSettle();
 
-    expect(chosen, 'B');
-  });
+      expect(chosen, 'B');
+    },
+  );
 
   testWidgets('tapping the teacher name opens the teacher photo dialog', (
     tester,
@@ -387,7 +407,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Ma'));
+    await tester.tap(find.text('Mathe'));
     await tester.pumpAndSettle();
 
     expect(find.text('Helga Müller (Müller)'), findsOneWidget);
@@ -418,7 +438,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Ma'));
+    await tester.tap(find.text('Mathe'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Helga Müller (Müller)'));
@@ -427,44 +447,46 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
   });
 
-  testWidgets('full substitution card shows red substitute and struck original', (
-    tester,
-  ) async {
-    final repository = fixtureRepository(
-      sessionManager,
-      'week_vertretung.html',
-    );
-    final teacherDirectory = TeacherDirectoryProvider(
-      initialEntries: const {
-        'BSMT': TeacherEntry(kuerzel: 'BSMT', fullName: 'Bernd Smit'),
-        'BDET': TeacherEntry(
-          kuerzel: 'BDET',
-          fullName: 'Birgit Deut',
-          photoUrl: 'https://start.bbs-papenburg.de/images/bdet.jpg',
+  testWidgets(
+    'full substitution card shows red substitute and struck original',
+    (tester) async {
+      final repository = fixtureRepository(
+        sessionManager,
+        'week_vertretung.html',
+      );
+      final teacherDirectory = TeacherDirectoryProvider(
+        initialEntries: const {
+          'BSMT': TeacherEntry(kuerzel: 'BSMT', fullName: 'Bernd Smit'),
+          'BDET': TeacherEntry(
+            kuerzel: 'BDET',
+            fullName: 'Birgit Deut',
+            photoUrl: 'https://start.bbs-papenburg.de/images/bdet.jpg',
+          ),
+        },
+      );
+
+      await tester.pumpWidget(
+        buildTestWidget(
+          repository,
+          day: 0, // Montag: Stunde 3+4 ist vertreten (BSMT -> BDET).
+          teacherDirectory: teacherDirectory,
         ),
-      },
-    );
+      );
+      await tester.pumpAndSettle();
 
-    await tester.pumpWidget(
-      buildTestWidget(
-        repository,
-        day: 0, // Montag: Stunde 3+4 ist vertreten (BSMT -> BDET).
-        teacherDirectory: teacherDirectory,
-      ),
-    );
-    await tester.pumpAndSettle();
+      // Bei einer Vertretung werden Vertreter und Originallehrkraft angezeigt.
+      expect(find.text('Birgit Deut'), findsOneWidget);
+      expect(find.text('Bernd Smit'), findsOneWidget);
 
-    // Card 2 (Voll-Vertretung): "[Rot Birgit Deut] [Grau durchgestrichen Bernd Smit]".
-    expect(find.text('Birgit Deut'), findsOneWidget);
-    expect(find.text('Bernd Smit'), findsOneWidget);
-
-    // Vertreter ist rot, das Original grau und durchgestrichen.
-    final subText = tester.widget<Text>(find.text('Birgit Deut'));
-    expect(subText.style?.color, substituteRed);
-    final oldText = tester.widget<Text>(find.text('Bernd Smit'));
-    expect(oldText.style?.color, cardGrey);
-    expect(oldText.style?.decoration, TextDecoration.lineThrough);
-  });
+      // Vertreter und durchgestrichene Originallehrkraft sind rot.
+      final subText = tester.widget<Text>(find.text('Birgit Deut'));
+      expect(subText.style?.color, substituteRed);
+      final oldText = tester.widget<Text>(find.text('Bernd Smit'));
+      expect(oldText.style?.color, substituteRed);
+      expect(oldText.style?.decoration, TextDecoration.lineThrough);
+      expect(oldText.style?.decorationColor, substituteRed);
+    },
+  );
 
   testWidgets('tapping a substitute in the detail modal opens its photo', (
     tester,
@@ -485,17 +507,13 @@ void main() {
     );
 
     await tester.pumpWidget(
-      buildTestWidget(
-        repository,
-        day: 0,
-        teacherDirectory: teacherDirectory,
-      ),
+      buildTestWidget(repository, day: 0, teacherDirectory: teacherDirectory),
     );
     await tester.pumpAndSettle();
 
     // Karte antippen -> Detail-Modal; im Modal ist der Vertreter rot und
     // per Tap auf sein Portrait-Foto klickbar.
-    await tester.tap(find.text('SP'));
+    await tester.tap(find.text('Sport'));
     await tester.pumpAndSettle();
 
     final subName = find.text('Birgit Deut (BDET)');
@@ -527,16 +545,12 @@ void main() {
     );
 
     await tester.pumpWidget(
-      buildTestWidget(
-        repository,
-        day: 0,
-        teacherDirectory: teacherDirectory,
-      ),
+      buildTestWidget(repository, day: 0, teacherDirectory: teacherDirectory),
     );
     await tester.pumpAndSettle();
 
-    // Karte (am Fach-Label) antippen -> Detail-Modal, das Fach SP.
-    await tester.tap(find.text('SP'));
+    // Karte (am Fach-Label) antippen -> Detail-Modal, das Fach Sport.
+    await tester.tap(find.text('Sport'));
     await tester.pumpAndSettle();
 
     // Modal ist offen, beide Lehrer sichtbar: Vertreter links (rot),
@@ -600,10 +614,95 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Ohne angemeldete Session zeigt die Ansicht das Login-Formular.
-    expect(find.text('IServ-Anmeldung'), findsOneWidget);
-    expect(find.text('Ma'), findsNothing);
+    // Lokale Aufgaben bleiben ohne IServ-Login erreichbar.
+    expect(find.text('IServ-Anmeldung'), findsNothing);
+    expect(find.text('Keine Hausaufgaben'), findsOneWidget);
+    expect(find.byTooltip('Hausaufgabe eintragen'), findsNothing);
+    expect(find.byTooltip('Bei IServ anmelden'), findsOneWidget);
+    expect(find.byTooltip('Abmelden'), findsNothing);
+
+    await tester.tap(find.byTooltip('Bei IServ anmelden'));
+    await tester.pumpAndSettle();
+    expect(find.text('Zurück zu lokalen Aufgaben'), findsNothing);
   });
+
+  testWidgets('weekly homework view also lists calendar events for that week', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_double_hours.html',
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        repository,
+        mode: TimetableViewMode.weekly,
+        calendarEvents: [
+          IservCalendarEvent(
+            id: 'week-event',
+            title: 'Wandertag',
+            start: DateTime(2026, 8, 12, 8),
+            description: 'Treffen am Haupteingang',
+          ),
+          IservCalendarEvent(
+            id: 'other-week-event',
+            title: 'Anderer Termin',
+            start: DateTime(2026, 8, 20, 8),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Wandertag'), findsOneWidget);
+    expect(find.textContaining('Treffen am Haupteingang'), findsOneWidget);
+    expect(find.text('Anderer Termin'), findsNothing);
+  });
+
+  testWidgets(
+    'a lesson shows one calendar icon and opens full same-day event details',
+    (tester) async {
+      final repository = fixtureRepository(
+        sessionManager,
+        'week_with_double_hours.html',
+      );
+
+      await tester.pumpWidget(
+        buildTestWidget(
+          repository,
+          day: 4,
+          calendarEvents: [
+            IservCalendarEvent(
+              id: 'event-one',
+              title: 'Mathearbeit',
+              start: DateTime(2026, 8, 14, 8, 15),
+              end: DateTime(2026, 8, 14, 8, 45),
+              description: 'Kapitel 2 bis 5',
+            ),
+            IservCalendarEvent(
+              id: 'event-two',
+              title: 'Abgabe',
+              start: DateTime(2026, 8, 14, 9),
+              end: DateTime(2026, 8, 14, 9, 20),
+              description: 'Arbeitsblatt vollständig bearbeiten',
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final calendarButton = find.byTooltip('Kalendereinträge anzeigen');
+      expect(calendarButton, findsOneWidget);
+      await tester.tap(calendarButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mathearbeit'), findsOneWidget);
+      expect(find.text('Kapitel 2 bis 5'), findsOneWidget);
+      expect(find.text('Abgabe'), findsOneWidget);
+      expect(find.text('Arbeitsblatt vollständig bearbeiten'), findsOneWidget);
+    },
+  );
 
   testWidgets('live double hour gets the live frame, no JETZT badge', (
     tester,
@@ -777,7 +876,7 @@ void main() {
       expect(find.text('Freie Stunde'), findsNothing);
       expect(find.text('7'), findsNothing);
       expect(find.text('8'), findsNothing);
-      expect(find.text('En'), findsOneWidget); // Block 3 (5+6) noch da
+      expect(find.text('Englisch'), findsOneWidget); // Block 3 (5+6) noch da
     },
   );
 
@@ -1005,14 +1104,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Ma'), findsOneWidget); // Freitag
+      expect(find.text('Mathe'), findsOneWidget); // Freitag
 
       // Nach rechts wischen -> Donnerstag (vorheriger Tag).
       await tester.drag(find.byType(PageView), const Offset(600, 0));
       await tester.pumpAndSettle();
 
       expect(selectedIndex, 3);
-      expect(find.text('Ma'), findsOneWidget); // Fixture zeigt jeden Tag
+      expect(find.text('Mathe'), findsOneWidget); // Fixture zeigt jeden Tag
 
       // Nach links wischen -> zurück zu Freitag.
       await tester.drag(find.byType(PageView), const Offset(-600, 0));

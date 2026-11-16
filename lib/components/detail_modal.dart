@@ -4,13 +4,16 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../models/timetable.dart';
-import '../pages/homework_list_page.dart';
+import '../pages/calendar_day_page.dart';
+import '../pages/local_homework_page.dart';
 import '../routes.dart';
+import '../services/iserv_calendar.dart';
 import '../services/teacher_directory.dart';
 import '../utils/block_schedule.dart';
 import '../utils/room_info.dart';
 import '../utils/teacher_photo.dart';
 import 'class_card.dart';
+import 'subject_name_label.dart';
 
 /// Öffnet die Detail-Modal (Bottom Sheet) für eine Unterrichtsstunde
 /// aus Tagesansicht oder Wochenmatrix.
@@ -22,8 +25,10 @@ void showLessonDetailModal(
   BlockTime? time,
   List<int>? periods,
   TeacherLookup? teacherLookup,
-  String? sessionId,
   bool stripGroup = false,
+  List<int>? homeworkPeriods,
+  VoidCallback? onHomeworkChanged,
+  List<IservCalendarEvent> calendarEvents = const [],
 }) {
   showModalBottomSheet<void>(
     context: context,
@@ -40,8 +45,10 @@ void showLessonDetailModal(
             BlockSchedule.fallbackTimeFor(block),
         lessons: lessons,
         teacherLookup: teacherLookup,
-        sessionId: sessionId,
         stripGroup: stripGroup,
+        homeworkPeriods: homeworkPeriods ?? periods ?? [block],
+        onHomeworkChanged: onHomeworkChanged,
+        calendarEvents: calendarEvents,
         onEditAlias: () {
           final lesson = lessons.first;
           Navigator.of(sheetContext).pop();
@@ -68,7 +75,9 @@ class _LessonDetailSheet extends StatelessWidget {
     required this.lessons,
     required this.onEditAlias,
     this.teacherLookup,
-    this.sessionId,
+    required this.homeworkPeriods,
+    this.onHomeworkChanged,
+    required this.calendarEvents,
     this.stripGroup = false,
   });
 
@@ -79,7 +88,9 @@ class _LessonDetailSheet extends StatelessWidget {
   final List<LessonEntry> lessons;
   final VoidCallback onEditAlias;
   final TeacherLookup? teacherLookup;
-  final String? sessionId;
+  final List<int> homeworkPeriods;
+  final VoidCallback? onHomeworkChanged;
+  final List<IservCalendarEvent> calendarEvents;
 
   /// Gruppen-Präfixe ("A:"/"B:") aus Lehrkraft-Anzeigen entfernen (Regel 5).
   final bool stripGroup;
@@ -113,13 +124,27 @@ class _LessonDetailSheet extends StatelessWidget {
     ).showSnackBar(const SnackBar(content: Text('Kopiert')));
   }
 
-  void _openHomework(BuildContext context) {
+  void _openCalendar(BuildContext context) {
     Navigator.of(context).pop();
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => HomeworkListPage(
+        builder: (_) => CalendarDayPage(
+          day: day.date,
+          events: calendarEvents,
+        ),
+      ),
+    );
+  }
+
+  void _openLocalHomework(BuildContext context) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LocalHomeworkPage(
           subject: lessons.first.lesson.trim(),
-          sessionId: sessionId,
+          lessonDate: day.date,
+          periods: homeworkPeriods,
+          onChanged: onHomeworkChanged,
         ),
       ),
     );
@@ -131,9 +156,7 @@ class _LessonDetailSheet extends StatelessWidget {
     final scheme = theme.colorScheme;
     final lesson = lessons.first;
     final dayName = DateFormat('EEEE, dd.MM.yyyy').format(day.date);
-    final subjectText = lesson.lesson.trim().isEmpty
-        ? '—'
-        : (stripGroup ? stripGroupPrefix(lesson.lesson).trim() : lesson.lesson.trim());
+    final hasSubject = lesson.lesson.trim().isNotEmpty;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -146,13 +169,22 @@ class _LessonDetailSheet extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(
-                    subjectText,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
+                  child: hasSubject
+                      ? SubjectNameLabel(
+                          raw: lesson.lesson,
+                          stripGroup: stripGroup,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          '—',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
                 const SizedBox(width: 12),
                 Column(
@@ -196,11 +228,16 @@ class _LessonDetailSheet extends StatelessWidget {
                   label: const Text('Kopieren'),
                 ),
                 TextButton.icon(
-                  onPressed: sessionId != null && sessionId!.isNotEmpty
-                      ? () => _openHomework(context)
+                  onPressed: hasSubject
+                      ? () => _openLocalHomework(context)
                       : null,
-                  icon: const Icon(Icons.visibility_outlined, size: 18),
-                  label: const Text('Hausaufgaben ansehen'),
+                  icon: const Icon(Icons.edit_note_outlined, size: 18),
+                  label: const Text('Hausaufgaben'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _openCalendar(context),
+                  icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                  label: const Text('Kalender'),
                 ),
                 TextButton.icon(
                   onPressed: onEditAlias,
@@ -265,6 +302,7 @@ class _LessonInfo extends StatelessWidget {
               child: _TeacherLine(
                 name: _displayFor(teacher),
                 photoTap: _photoTap(context, teacher),
+                color: substituteRed,
                 strikethrough: true,
               ),
             ),
@@ -332,15 +370,13 @@ class _LessonInfo extends StatelessWidget {
     final entry = teacherLookup?.call(split.kuerzel);
     final resolved = entry?.fullName ?? split.kuerzel;
     if (entry == null || resolved == split.kuerzel) {
-      return split.prefix != null && stripGroup
-          ? stripGroupPrefix(raw)
-          : raw;
+      return split.prefix != null && stripGroup ? stripGroupPrefix(raw) : raw;
     }
     return split.prefix != null && stripGroup
         ? '$resolved (${split.kuerzel})'
         : split.prefix == null
-            ? '$resolved ($raw)'
-            : '${split.prefix}: $resolved (${split.kuerzel})';
+        ? '$resolved ($raw)'
+        : '${split.prefix}: $resolved (${split.kuerzel})';
   }
 
   /// Öffnet das Portrait-Foto zur Lehrkraft, falls ein Foto existiert.
@@ -391,7 +427,9 @@ class _TeacherLine extends StatelessWidget {
                   color: baseColor,
                   decoration: strikethrough ? TextDecoration.lineThrough : null,
                   decorationThickness: strikethrough ? 1.2 : null,
-                  decorationColor: scheme.onSurfaceVariant,
+                  decorationColor: strikethrough
+                      ? substituteRed
+                      : scheme.onSurfaceVariant,
                 ),
               ),
             ),

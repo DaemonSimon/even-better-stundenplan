@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -13,13 +14,19 @@ import 'services/secure_storage.dart';
 import 'services/teacher_directory.dart';
 import 'routes.dart';
 import 'components/class_card.dart';
+import 'services/homework_attachments.dart';
+import 'services/iserv_mapping.dart';
 
 const Color _seedColor = Color(0xFFC59B31);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
   Intl.defaultLocale = 'de_DE';
   await initializeDateFormatting('de_DE');
+  await _purgeExpiredHomework();
   final storage = SecureCredentialStorage();
   await storage.migrateFromSharedPreferences();
   final sessionManager = SessionManager(storage: storage);
@@ -34,6 +41,19 @@ void main() async {
   runApp(
     MyApp(sessionManager: sessionManager, teacherDirectory: teacherDirectory),
   );
+}
+
+Future<void> _purgeExpiredHomework() async {
+  try {
+    final expired = await TempAssignmentStore().purgeCompleted();
+    for (final task in expired) {
+      await HomeworkAttachments.deleteOwned(task.imagePaths);
+    }
+  } catch (error) {
+    debugPrint(
+      'Abgelaufene Hausaufgaben konnten nicht gelöscht werden: $error',
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {

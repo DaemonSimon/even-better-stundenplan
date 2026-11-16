@@ -17,6 +17,7 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -61,6 +62,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
     implementation platform("io.github.jan-tennert.supabase:bom:3.7.0")
     implementation "io.github.jan-tennert.supabase:postgrest-kt"
     implementation "io.github.jan-tennert.supabase:storage-kt"

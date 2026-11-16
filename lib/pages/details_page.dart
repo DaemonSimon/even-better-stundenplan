@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../services/subject_names.dart';
 import '../utils/subject_colors.dart';
 
 class DetailsPage extends StatefulWidget {
@@ -68,6 +70,9 @@ class _DetailsPageState extends State<DetailsPage> {
   }
 
   Future<String> getEditedName(String field, String original) async {
+    if (field == 'fach') {
+      return SubjectNames.displayName(original, stripGroup: true);
+    }
     final prefs = await SharedPreferences.getInstance();
     final prefixed = prefs.getString(_aliasKey(field, original));
     if (prefixed != null) return prefixed;
@@ -88,8 +93,12 @@ class _DetailsPageState extends State<DetailsPage> {
     String original,
   ) async {
     if (isEditing) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_aliasKey(field, original), controller.text);
+      if (field == 'fach') {
+        await SubjectNames.saveAlias(original, controller.text);
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_aliasKey(field, original), controller.text);
+      }
     }
     setState(() {
       switch (field) {
@@ -237,8 +246,7 @@ class _DetailsPageState extends State<DetailsPage> {
                     IconButton(
                       tooltip: 'Wert kopieren',
                       icon: const Icon(Icons.copy, size: 20),
-                      onPressed: () =>
-                          _copyToClipboard(controller.text.trim()),
+                      onPressed: () => _copyToClipboard(controller.text.trim()),
                     ),
                   ],
                 ),

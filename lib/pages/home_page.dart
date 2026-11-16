@@ -9,9 +9,13 @@ import '../components/group_settings_sheet.dart';
 import '../components/stundenplan_widget.dart';
 import '../providers/date_utilities.dart';
 import '../providers/teacher_directory_provider.dart';
+import '../services/app_settings.dart';
 import '../services/group_preference.dart';
+import '../services/iserv_calendar.dart';
+import '../services/iserv_session.dart';
 import '../services/session_manager.dart';
 import '../services/stundenplan_repository.dart';
+import '../services/homework_reminders.dart';
 import '../utils/simulated_clock.dart';
 
 class HomePage extends StatefulWidget {
@@ -39,7 +43,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<HomePage> {
+class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
   // Anker-Datum für die aktuelle Woche (Montag wird daraus berechnet)
   late DateTime _baseDate;
 
@@ -59,6 +63,13 @@ class _MyHomePageState extends State<HomePage> {
 
   late final GroupPreferenceStore _groupStore =
       widget.groupStore ?? SharedPreferencesGroupStore();
+  late final IservSession _calendarSession = IservSession();
+  late final IservCalendarStore _calendarStore = IservCalendarStore();
+
+  AppSettings _appSettings = const AppSettings();
+  List<IservCalendarEvent> _calendarEvents = const [];
+  bool _calendarLoading = false;
+  String? _calendarError;
 
   DateTime get _weekStart => getNthDayOfWeek(_baseDate, 1);
 
@@ -80,12 +91,93 @@ class _MyHomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _baseDate = _clock.now();
     _selectedDayIndex = _todayIndex;
     _group = widget.initialGroup;
     _repository = StundenplanRepository(sessionManager: widget.sessionManager);
     WidgetsBinding.instance.addPostFrameCallback((_) => checkAuth());
     _loadGroup();
+    unawaited(_loadCalendarSettings());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _repository.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    unawaited(_refreshOnResume());
+  }
+
+  Future<void> _refreshOnResume() async {
+    await widget.sessionManager.checkAuthentication();
+    if (!widget.sessionManager.isLoggedIn) {
+      await widget.sessionManager.tryReAuthenticate();
+    }
+    if (!mounted) return;
+
+    final now = _clock.now();
+    setState(() {
+      _baseDate = now;
+      _selectedDayIndex = (now.weekday - 1).clamp(0, 4);
+    });
+    _repository.refresh();
+    if (_appSettings.syncIservCalendar) {
+      await _syncCalendar();
+    }
+  }
+
+  Future<void> _loadCalendarSettings() async {
+    final settings = await AppSettingsStore().load();
+    final events = await _calendarStore.load();
+    if (!mounted) return;
+    setState(() {
+      _appSettings = settings;
+      _calendarEvents = events;
+    });
+    unawaited(HomeworkReminders.syncCalendarEvents(events));
+    if (settings.syncIservCalendar) unawaited(_syncCalendar());
+  }
+
+  Future<void> _syncCalendar() async {
+    if (!_appSettings.syncIservCalendar || _calendarLoading) return;
+    setState(() {
+      _calendarLoading = true;
+      _calendarError = null;
+    });
+    try {
+      await _calendarSession.restore();
+      final events = await fetchIservCalendar(_calendarSession);
+      await _calendarStore.save(events);
+      if (!mounted) return;
+      setState(() {
+        _calendarEvents = events;
+        _calendarLoading = false;
+      });
+      unawaited(HomeworkReminders.syncCalendarEvents(events));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _calendarError = error.toString();
+        _calendarLoading = false;
+      });
+    }
+  }
+
+  void _onSettingsChanged() {
+    unawaited(_loadCalendarSettings());
+  }
+
+  void _setViewMode(TimetableViewMode mode) {
+    setState(() => _viewMode = mode);
+    if (mode == TimetableViewMode.daily && _appSettings.syncIservCalendar) {
+      unawaited(_syncCalendar());
+    }
   }
 
   Future<void> _loadGroup() async {
@@ -103,24 +195,19 @@ class _MyHomePageState extends State<HomePage> {
         setState(() => _group = value);
         _groupStore.saveGroup(value);
       },
+      onSettingsChanged: _onSettingsChanged,
     );
   }
 
   void checkAuth() async {
-    bool authStatus = await widget.sessionManager.checkAuthentication();
+    final authStatus = await widget.sessionManager.checkAuthentication();
 
     if (!authStatus) {
-      // Stille Re-Anmeldung im Hintergrund über die gespeicherten
-      // Zugangsdaten – nur wenn das scheitert (z. B. keine Daten
-      // gespeichert), zur manuellen Anmeldung weiterleiten.
-      final reauthOk = await widget.sessionManager.tryReAuthenticate();
-      if (reauthOk) {
-        if (mounted) setState(() {});
-        return;
+      final reauthenticated = await widget.sessionManager.tryReAuthenticate();
+      if (reauthenticated && mounted) {
+        setState(() {});
+        _repository.refresh();
       }
-      if (!mounted) return;
-      context.pushReplacement('/authenticate');
-      return;
     }
   }
 
@@ -129,6 +216,7 @@ class _MyHomePageState extends State<HomePage> {
       _baseDate = _clock.now();
       _selectedDayIndex = _todayIndex;
     });
+    if (_appSettings.syncIservCalendar) unawaited(_syncCalendar());
   }
 
   void _openDebugClock() {
@@ -160,16 +248,8 @@ class _MyHomePageState extends State<HomePage> {
     DateTime? date = await showDatePicker(
       context: context,
       initialDate: current,
-      firstDate: DateTime(
-        current.year - 1,
-        current.month,
-        current.day,
-      ),
-      lastDate: DateTime(
-        current.year + 1,
-        current.month,
-        current.day,
-      ),
+      firstDate: DateTime(current.year - 1, current.month, current.day),
+      lastDate: DateTime(current.year + 1, current.month, current.day),
     );
 
     if (date != null && mounted) {
@@ -177,6 +257,7 @@ class _MyHomePageState extends State<HomePage> {
         _baseDate = getNthDayOfWeek(date, 1);
         _selectedDayIndex = (date.weekday - 1).clamp(0, 4);
       });
+      if (_appSettings.syncIservCalendar) unawaited(_syncCalendar());
     }
   }
 
@@ -194,6 +275,9 @@ class _MyHomePageState extends State<HomePage> {
       clock: _clock.now,
       tickInterval: _clock.tickInterval,
       sessionId: widget.sessionManager.sessionId,
+      calendarEvents: _appSettings.syncIservCalendar
+          ? _calendarEvents
+          : const [],
       group: _group,
       onDaySelected: (index) {
         setState(() {
@@ -211,6 +295,8 @@ class _MyHomePageState extends State<HomePage> {
     final friday = getNthDayOfWeek(monday, 5);
     final dateSpan =
         '${DateFormat('dd.MM.').format(monday)} – ${DateFormat('dd.MM.yyyy').format(friday)}';
+    final showCalendar = _viewMode == TimetableViewMode.daily &&
+        _appSettings.syncIservCalendar;
 
     return Scaffold(
       bottomNavigationBar: BottomAppBar(
@@ -228,19 +314,15 @@ class _MyHomePageState extends State<HomePage> {
                 ButtonSegment(
                   value: TimetableViewMode.weekly,
                   icon: Icon(Icons.task_outlined),
-                  tooltip: 'Aufgaben',
+                  tooltip: 'Hausaufgaben',
                 ),
               ],
               selected: {_viewMode},
               onSelectionChanged: (selection) {
-                setState(() {
-                  _viewMode = selection.first;
-                });
+                _setViewMode(selection.first);
               },
               showSelectedIcon: false,
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-              ),
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
             ),
           ],
         ),
@@ -254,6 +336,18 @@ class _MyHomePageState extends State<HomePage> {
           child: Text(widget.title),
         ),
         actions: [
+          if (showCalendar)
+            IconButton(
+              tooltip: 'IServ-Kalender aktualisieren',
+              onPressed: _calendarLoading ? null : _syncCalendar,
+              icon: _calendarLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync),
+            ),
           IconButton(
             tooltip: 'Einstellungen',
             icon: const Icon(Icons.settings_outlined),
@@ -272,6 +366,45 @@ class _MyHomePageState extends State<HomePage> {
             onPickWeek: () => _chooseWeek(context),
             onGoToToday: _goToToday,
           ),
+          if (_calendarError != null && showCalendar)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                'Kalender-Sync fehlgeschlagen. Gespeicherte Termine bleiben sichtbar.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ),
+          if (!widget.sessionManager.isLoggedIn &&
+              _viewMode != TimetableViewMode.weekly)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Material(
+                color: theme.colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Für den Stundenplan anmelden. Hausaufgaben kannst du '
+                          'auch ohne Anmeldung lokal eintragen.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSecondaryContainer,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => context.push('/authenticate'),
+                        child: const Text('Anmelden'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Expanded(
             child: ListenableBuilder(
               listenable: Listenable.merge([widget.teacherDirectory, _clock]),
@@ -385,12 +518,9 @@ class _DebugClockBadgeState extends State<_DebugClockBadge> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(
-      const Duration(milliseconds: 250),
-      (_) {
-        if (mounted) setState(() {});
-      },
-    );
+    _timer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override

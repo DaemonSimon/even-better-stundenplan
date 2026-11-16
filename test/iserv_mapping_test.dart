@@ -67,6 +67,17 @@ void main() {
   });
 
   group('TempAssignmentStore', () {
+    test('Fotoanhänge überleben das Speichern und erneute Laden', () async {
+      final store = TempAssignmentStore();
+      await store.add(
+        title: 'Arbeitsblatt',
+        imagePaths: const ['/local/homework/photo.jpg'],
+      );
+
+      final reloaded = await TempAssignmentStore().load();
+      expect(reloaded.single.imagePaths, ['/local/homework/photo.jpg']);
+    });
+
     test('add/update/remove-Roundtrip', () async {
       final store = TempAssignmentStore();
       final added = await store.add(
@@ -99,6 +110,56 @@ void main() {
       expect(first.id, 1);
       expect(second.id, 2);
     });
+
+    test(
+      'Unterrichtsbezug und Erledigt-Status bleiben lokal gespeichert',
+      () async {
+        final store = TempAssignmentStore();
+        await store.add(
+          title: 'Arbeitsblatt',
+          subject: 'Mathematik',
+          dueDate: '2026-11-12',
+          lessonDate: '2026-11-12',
+          hour: '3',
+        );
+        final task = (await store.load()).single;
+        await store.update(
+          task.copyWith(completedAt: DateTime(2026, 11, 11).toIso8601String()),
+        );
+
+        final restored = (await TempAssignmentStore().load()).single;
+        expect(restored.subject, 'Mathematik');
+        expect(restored.lessonDate, '2026-11-12');
+        expect(restored.hour, '3');
+        expect(restored.completedAt, '2026-11-11T00:00:00.000');
+      },
+    );
+
+    test('löscht erledigte Aufgaben erst nach 24 Stunden', () async {
+      final now = DateTime(2026, 11, 11, 12);
+      final store = TempAssignmentStore();
+      final old = await store.add(title: 'Schon lange erledigt');
+      final recent = await store.add(title: 'Gerade erledigt');
+      final open = await store.add(title: 'Noch offen');
+      await store.update(
+        old.copyWith(
+          completedAt: now
+              .subtract(const Duration(hours: 24))
+              .toIso8601String(),
+        ),
+      );
+      await store.update(
+        recent.copyWith(
+          completedAt: now
+              .subtract(const Duration(hours: 23))
+              .toIso8601String(),
+        ),
+      );
+
+      final removed = await store.purgeCompleted(now: now);
+      expect(removed.map((task) => task.id), [old.id]);
+      expect((await store.load()).map((task) => task.id), [recent.id, open.id]);
+    });
   });
 
   group('mergeTasks', () {
@@ -113,18 +174,25 @@ void main() {
 
       final merged = mergeTasks(
         iservTasks: [
-          IservTask(title: 'Alt', subject: 'Mathematik', dueDate: '2026-08-20T08:00'),
-          IservTask(title: 'Dringend', subject: 'Deutsch', dueDate: '2026-08-14T08:00'),
+          IservTask(
+            title: 'Alt',
+            subject: 'Mathematik',
+            dueDate: '2026-08-20T08:00',
+          ),
+          IservTask(
+            title: 'Dringend',
+            subject: 'Deutsch',
+            dueDate: '2026-08-14T08:00',
+          ),
         ],
         tempTasks: await store.load(),
         engine: engine,
       );
 
-      expect([for (final t in merged) t['title']], [
-        'Dringend',
-        'Referat vorbereiten',
-        'Alt',
-      ]);
+      expect(
+        [for (final t in merged) t['title']],
+        ['Dringend', 'Referat vorbereiten', 'Alt'],
+      );
       expect(merged[0]['slot'], 'Mo.3'); // Deutsch-Default
       expect(merged[1]['source'], 'temp');
       expect(merged[1]['slot'], 'Fr.3'); // Politik-Default
@@ -139,6 +207,23 @@ void main() {
       );
       expect(merged.single['due_date'], isNull);
       expect(merged.single['slot'], 'Mi.2');
+    });
+
+    test('erledigte lokale Aufgaben werden sofort ausgeblendet', () {
+      final merged = mergeTasks(
+        iservTasks: const [],
+        tempTasks: [
+          TempAssignment(
+            id: 1,
+            title: 'Erledigt',
+            completedAt: DateTime.now().toIso8601String(),
+          ),
+          const TempAssignment(id: 2, title: 'Offen'),
+        ],
+        engine: IservMappingEngine(),
+      );
+
+      expect(merged.map((task) => task['title']), ['Offen']);
     });
   });
 }

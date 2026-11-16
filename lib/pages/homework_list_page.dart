@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -79,7 +81,8 @@ class _HomeworkListPageState extends State<HomeworkListPage> {
         for (final item in items)
           if (item is Map)
             {
-              for (final entry in item.entries) entry.key.toString(): entry.value,
+              for (final entry in item.entries)
+                entry.key.toString(): entry.value,
             },
       ];
     } catch (_) {
@@ -114,10 +117,7 @@ class _HomeworkListPageState extends State<HomeworkListPage> {
       appBar: AppBar(
         title: Text(widget.subject),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: _buildBody(theme, scheme),
@@ -169,7 +169,9 @@ class _HomeworkListPageState extends State<HomeworkListPage> {
           if (index < _klassenbuch.length) {
             return _KlassenbuchCard(homework: _klassenbuch[index]);
           }
-          return _UserHomeworkCard(homework: _homework[index - _klassenbuch.length]);
+          return _UserHomeworkCard(
+            homework: _homework[index - _klassenbuch.length],
+          );
         },
       ),
     );
@@ -185,6 +187,10 @@ class _KlassenbuchCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final content = homework['content'] as String? ?? '';
+    final subject = homework['subject'] as String? ?? '';
+    final date = homework['date'] as String? ?? '';
+    final period = homework['period'] as String? ?? '';
+    final teacher = homework['teacher'] as String? ?? '';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -198,11 +204,36 @@ class _KlassenbuchCard extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Text(
-          content,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w500,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 4,
+              children: [
+                if (subject.isNotEmpty)
+                  Text(
+                    subject,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                if (date.isNotEmpty)
+                  Text(date, style: theme.textTheme.labelMedium),
+                if (period.isNotEmpty)
+                  Text('$period. Stunde', style: theme.textTheme.labelMedium),
+                if (teacher.isNotEmpty)
+                  Text(teacher, style: theme.textTheme.labelMedium),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              content,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -276,9 +307,34 @@ class _UserHomeworkCard extends StatelessWidget {
   }
 }
 
-class _ZoomableImagePage extends StatelessWidget {
+class _ZoomableImagePage extends StatefulWidget {
   const _ZoomableImagePage({required this.url});
   final String url;
+
+  @override
+  State<_ZoomableImagePage> createState() => _ZoomableImagePageState();
+}
+
+class _ZoomableImagePageState extends State<_ZoomableImagePage> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+    );
+  }
+
+  @override
+  void dispose() {
+    unawaited(
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]),
+    );
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -300,7 +356,7 @@ class _ZoomableImagePage extends StatelessWidget {
           child: SizedBox(
             width: screenSize.width,
             child: Image.network(
-              url,
+              widget.url,
               fit: BoxFit.fitWidth,
               errorBuilder: (_, __, ___) => const Icon(
                 Icons.broken_image,

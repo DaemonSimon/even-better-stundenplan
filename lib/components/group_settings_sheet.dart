@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_settings.dart';
+import '../services/homework_reminders.dart';
 import 'class_card.dart';
 
 /// Füllfarbe des ausgewählten Buttons – eine flache, etwas hellere
@@ -12,6 +14,7 @@ Future<void> showGroupSettingsSheet(
   BuildContext context, {
   required String? group,
   required ValueChanged<String?> onChanged,
+  VoidCallback? onSettingsChanged,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -20,17 +23,19 @@ Future<void> showGroupSettingsSheet(
     builder: (sheetContext) => GroupSettingsSheet(
       group: group,
       onChanged: onChanged,
+      onSettingsChanged: onSettingsChanged,
     ),
   );
 }
 
 /// Flaches, dunkles Einstellungs-Sheet: "Einstellungen" -> "Kursgruppe"
 /// mit zwei schlichten Buttons (A/B) auf dem Karten-Hintergrund.
-class GroupSettingsSheet extends StatelessWidget {
+class GroupSettingsSheet extends StatefulWidget {
   const GroupSettingsSheet({
     super.key,
     required this.group,
     required this.onChanged,
+    this.onSettingsChanged,
   });
 
   /// Aktuell gespeicherte Gruppe (z. B. "A") oder null.
@@ -39,10 +44,72 @@ class GroupSettingsSheet extends StatelessWidget {
   /// Wird mit der gewählten Gruppe (oder null) aufgerufen, nachdem das
   /// Sheet geschlossen wurde.
   final ValueChanged<String?> onChanged;
+  final VoidCallback? onSettingsChanged;
+
+  @override
+  State<GroupSettingsSheet> createState() => _GroupSettingsSheetState();
+}
+
+class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
+  AppSettings _settings = const AppSettings();
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final settings = await AppSettingsStore().load();
+    if (!mounted) return;
+    setState(() {
+      _settings = settings;
+      _loading = false;
+    });
+  }
+
+  Future<void> _saveSettings(AppSettings settings) async {
+    if (settings.homeworkRemindersEnabled &&
+        !_settings.homeworkRemindersEnabled) {
+      final granted = await HomeworkReminders.requestPermissions();
+      if (!granted) {
+        settings = settings.copyWith(homeworkRemindersEnabled: false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Benachrichtigungen sind nicht freigegeben'),
+            ),
+          );
+        }
+      }
+    }
+    await AppSettingsStore().save(settings);
+    if (!mounted) return;
+    setState(() => _settings = settings);
+    widget.onSettingsChanged?.call();
+  }
 
   void _select(BuildContext context, String? value) {
     Navigator.of(context).pop();
-    onChanged(value);
+    widget.onChanged(value);
+  }
+
+  Future<void> _chooseReminderTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: _settings.reminderHour,
+        minute: _settings.reminderMinute,
+      ),
+    );
+    if (time == null) return;
+    await _saveSettings(
+      _settings.copyWith(
+        reminderHour: time.hour,
+        reminderMinute: time.minute,
+      ),
+    );
   }
 
   @override
@@ -50,9 +117,10 @@ class GroupSettingsSheet extends StatelessWidget {
     final theme = Theme.of(context);
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-        child: Column(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -73,8 +141,7 @@ class GroupSettingsSheet extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Zeigt nur die Kurse deiner Gruppe – Gruppen-Präfixe '
-              '"A:"/"B:" verschwinden aus den Karten.',
+              'Zeigt nur die Kurse deiner Gruppe an',
               style: theme.textTheme.bodySmall?.copyWith(color: cardGrey),
             ),
             const SizedBox(height: 16),
@@ -83,7 +150,7 @@ class GroupSettingsSheet extends StatelessWidget {
                 Expanded(
                   child: _GroupSegment(
                     label: 'A',
-                    selected: group?.toUpperCase() == 'A',
+                    selected: widget.group?.toUpperCase() == 'A',
                     onTap: () => _select(context, 'A'),
                   ),
                 ),
@@ -91,17 +158,122 @@ class GroupSettingsSheet extends StatelessWidget {
                 Expanded(
                   child: _GroupSegment(
                     label: 'B',
-                    selected: group?.toUpperCase() == 'B',
+                    selected: widget.group?.toUpperCase() == 'B',
                     onTap: () => _select(context, 'B'),
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 24),
+            Text(
+              'Hausaufgabenerinnerung',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: LinearProgressIndicator(),
+              )
+            else ...[
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Erinnerungen aktivieren'),
+                value: _settings.homeworkRemindersEnabled,
+                onChanged: (value) => _saveSettings(
+                  _settings.copyWith(homeworkRemindersEnabled: value),
+                ),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Hausaufgaben'),
+                value: _settings.remindAboutHomework,
+                onChanged: _settings.homeworkRemindersEnabled
+                    ? (value) => _saveSettings(
+                        _settings.copyWith(remindAboutHomework: value),
+                      )
+                    : null,
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Kalendertermine'),
+                subtitle: _settings.syncIservCalendar
+                    ? null
+                    : const Text('Aktiviere zuerst die IServ-Kalendersynchronisierung'),
+                value: _settings.remindAboutCalendar,
+                onChanged:
+                    _settings.homeworkRemindersEnabled &&
+                        _settings.syncIservCalendar
+                    ? (value) => _saveSettings(
+                        _settings.copyWith(remindAboutCalendar: value),
+                      )
+                    : null,
+              ),
+              Row(
+                children: [
+                  const Expanded(child: Text('Erinnern')),
+                  DropdownButton<int>(
+                    value: _settings.reminderDaysBefore,
+                    items: [
+                      for (var days = 0; days <= 7; days++)
+                        DropdownMenuItem(
+                          value: days,
+                          child: Text(
+                            days == 0 ? 'Am selben Tag' : '$days Tage vorher',
+                          ),
+                        ),
+                    ],
+                    onChanged: _settings.homeworkRemindersEnabled
+                        ? (days) {
+                            if (days == null) return;
+                            _saveSettings(
+                              _settings.copyWith(reminderDaysBefore: days),
+                            );
+                          }
+                        : null,
+                  ),
+                ],
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _settings.homeworkRemindersEnabled
+                      ? _chooseReminderTime
+                      : null,
+                  icon: const Icon(Icons.schedule),
+                  label: Text(
+                    'Uhrzeit ${_formatTime(_settings.reminderHour, _settings.reminderMinute)}',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Stundenplan',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Mit IServ-Kalender synchronisieren'),
+                value: _settings.syncIservCalendar,
+                onChanged: (value) => _saveSettings(
+                  _settings.copyWith(syncIservCalendar: value),
+                ),
+              ),
+            ],
           ],
+          ),
         ),
       ),
     );
   }
+
+  String _formatTime(int hour, int minute) =>
+      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 }
 
 /// Einzelner flacher Auswahl-Button (A oder B) im "Segmented"-Stil.

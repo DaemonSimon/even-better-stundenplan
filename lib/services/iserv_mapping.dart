@@ -29,29 +29,48 @@ class IservMappingEngine {
 
   // Fach-Kürzel -> kanonischer Fachname (für die Normalisierung).
   static const Map<String, String> _subjectAliases = {
-    'ma': 'mathematik', 'math': 'mathematik', 'mathe': 'mathematik',
-    'de': 'deutsch', 'deu': 'deutsch',
-    'en': 'englisch', 'eng': 'englisch',
-    'fr': 'französisch', 'frz': 'französisch',
-    'sp': 'spanisch', 'span': 'spanisch',
+    'ma': 'mathematik',
+    'math': 'mathematik',
+    'mathe': 'mathematik',
+    'de': 'deutsch',
+    'deu': 'deutsch',
+    'en': 'englisch',
+    'eng': 'englisch',
+    'fr': 'französisch',
+    'frz': 'französisch',
+    'sp': 'spanisch',
+    'span': 'spanisch',
     'lat': 'latein',
     'bio': 'biologie',
-    'phy': 'physik', 'phys': 'physik',
-    'che': 'chemie', 'chem': 'chemie',
-    'inf': 'informatik', 'info': 'informatik',
+    'phy': 'physik',
+    'phys': 'physik',
+    'che': 'chemie',
+    'chem': 'chemie',
+    'inf': 'informatik',
+    'info': 'informatik',
     'spo': 'sport',
     'kun': 'kunst',
     'mus': 'musik',
-    'rel': 'religion', 'evr': 'religion',
+    'rel': 'religion',
+    'evr': 'religion',
     'eth': 'ethik',
-    'pae': 'pädagogik', 'ped': 'pädagogik',
+    'pae': 'pädagogik',
+    'ped': 'pädagogik',
     'sow': 'sozialwissenschaften',
-    'pol': 'politik', 'po': 'politik', 'pkw': 'politik',
-    'ge': 'geschichte', 'ges': 'geschichte',
-    'er': 'erdkunde', 'ek': 'erdkunde', 'geo': 'erdkunde',
-    'wi': 'wirtschaft', 'bwl': 'wirtschaft', 'vwl': 'wirtschaft',
+    'pol': 'politik',
+    'po': 'politik',
+    'pkw': 'politik',
+    'ge': 'geschichte',
+    'ges': 'geschichte',
+    'er': 'erdkunde',
+    'ek': 'erdkunde',
+    'geo': 'erdkunde',
+    'wi': 'wirtschaft',
+    'bwl': 'wirtschaft',
+    'vwl': 'wirtschaft',
     'nw': 'naturwissenschaften',
-    'wp': 'wahlpflicht', 'wpo': 'wahlpflicht',
+    'wp': 'wahlpflicht',
+    'wpo': 'wahlpflicht',
   };
 
   /// Sinnvolle Defaults: Fach -> bevorzugter Block-Slot.
@@ -106,9 +125,9 @@ class IservMappingEngine {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
       if (raw != null && raw.isNotEmpty) {
-        _overrides =
-            (jsonDecode(raw) as Map<String, dynamic>)
-                .map((k, v) => MapEntry(k, v.toString()));
+        _overrides = (jsonDecode(raw) as Map<String, dynamic>).map(
+          (k, v) => MapEntry(k, v.toString()),
+        );
       }
     } catch (_) {
       _overrides = {};
@@ -159,6 +178,10 @@ class TempAssignment {
     this.dueDate,
     this.description = '',
     this.links = const [],
+    this.imagePaths = const [],
+    this.lessonDate,
+    this.hour,
+    this.completedAt,
   });
 
   final int id;
@@ -168,6 +191,15 @@ class TempAssignment {
   final String? dueDate;
   final String description;
   final List<String> links;
+  final List<String> imagePaths;
+  final String? lessonDate;
+  final String? hour;
+  final String? completedAt;
+
+  List<int> get periods => [
+    for (final value in (hour ?? '').split('+'))
+      if (int.tryParse(value) case final period?) period,
+  ];
 
   TempAssignment copyWith({
     String? title,
@@ -176,6 +208,11 @@ class TempAssignment {
     String? dueDate,
     String? description,
     List<String>? links,
+    List<String>? imagePaths,
+    String? lessonDate,
+    String? hour,
+    String? completedAt,
+    bool clearCompletedAt = false,
   }) => TempAssignment(
     id: id,
     title: title ?? this.title,
@@ -184,6 +221,10 @@ class TempAssignment {
     dueDate: dueDate ?? this.dueDate,
     description: description ?? this.description,
     links: links ?? this.links,
+    imagePaths: imagePaths ?? this.imagePaths,
+    lessonDate: lessonDate ?? this.lessonDate,
+    hour: hour ?? this.hour,
+    completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
   );
 
   Map<String, dynamic> toJson() => {
@@ -194,21 +235,31 @@ class TempAssignment {
     'due_date': dueDate,
     'description': description,
     'links': links,
+    'image_paths': imagePaths,
+    'lesson_date': lessonDate,
+    'hour': hour,
+    'completed_at': completedAt,
   };
 
-  factory TempAssignment.fromJson(Map<String, dynamic> json) =>
-      TempAssignment(
-        id: json['id'] as int,
-        title: json['title'] as String,
-        subject: json['subject'] as String? ?? '',
-        teacher: json['teacher'] as String? ?? '',
-        dueDate: json['due_date'] as String?,
-        description: json['description'] as String? ?? '',
-        links: [
-          for (final link in (json['links'] as List? ?? const []))
-            if (link is String) link,
-        ],
-      );
+  factory TempAssignment.fromJson(Map<String, dynamic> json) => TempAssignment(
+    id: json['id'] as int,
+    title: json['title'] as String,
+    subject: json['subject'] as String? ?? '',
+    teacher: json['teacher'] as String? ?? '',
+    dueDate: json['due_date'] as String?,
+    description: json['description'] as String? ?? '',
+    links: [
+      for (final link in (json['links'] as List? ?? const []))
+        if (link is String) link,
+    ],
+    imagePaths: [
+      for (final path in (json['image_paths'] as List? ?? const []))
+        if (path is String) path,
+    ],
+    lessonDate: json['lesson_date'] as String?,
+    hour: json['hour'] as String?,
+    completedAt: json['completed_at'] as String?,
+  );
 }
 
 /// Speichert temporäre Aufgaben in SharedPreferences (JSON-Liste).
@@ -217,28 +268,49 @@ class TempAssignmentStore {
 
   static const String _prefsKey = 'iserv_temp_assignments';
 
-  Future<List<TempAssignment>> load() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw == null || raw.isEmpty) return [];
-      return [
-        for (final item in jsonDecode(raw) as List)
-          if (item is Map<String, dynamic>) TempAssignment.fromJson(item),
-      ];
-    } catch (_) {
-      return [];
+  static DateTime? nextCleanupAt(
+    Iterable<TempAssignment> tasks, {
+    DateTime? now,
+  }) {
+    final current = now ?? DateTime.now();
+    DateTime? next;
+    for (final task in tasks) {
+      final completedAt = task.completedAt == null
+          ? null
+          : DateTime.tryParse(task.completedAt!);
+      if (completedAt == null) continue;
+      final expiresAt = completedAt.add(const Duration(days: 1));
+      if (expiresAt.isAfter(current) &&
+          (next == null || expiresAt.isBefore(next))) {
+        next = expiresAt;
+      }
     }
+    return next;
+  }
+
+  Future<List<TempAssignment>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      throw const FormatException('Lokale Aufgabenliste ist ungültig.');
+    }
+    return [
+      for (final item in decoded)
+        if (item is Map<String, dynamic>) TempAssignment.fromJson(item)
+        else
+          throw const FormatException('Lokaler Aufgabeneintrag ist ungültig.'),
+    ];
   }
 
   Future<List<TempAssignment>> _save(List<TempAssignment> tasks) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _prefsKey,
-        jsonEncode([for (final t in tasks) t.toJson()]),
-      );
-    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    final saved = await prefs.setString(
+      _prefsKey,
+      jsonEncode([for (final t in tasks) t.toJson()]),
+    );
+    if (!saved) throw StateError('Lokale Aufgaben konnten nicht gespeichert werden.');
     return tasks;
   }
 
@@ -249,6 +321,9 @@ class TempAssignmentStore {
     String? dueDate,
     String description = '',
     List<String> links = const [],
+    List<String> imagePaths = const [],
+    String? lessonDate,
+    String? hour,
   }) async {
     final tasks = await load();
     final id = tasks.isEmpty
@@ -262,6 +337,9 @@ class TempAssignmentStore {
       dueDate: dueDate,
       description: description,
       links: links,
+      imagePaths: imagePaths,
+      lessonDate: lessonDate,
+      hour: hour,
     );
     await _save([...tasks, task]);
     return task;
@@ -277,7 +355,31 @@ class TempAssignmentStore {
 
   Future<List<TempAssignment>> remove(int id) async {
     final tasks = await load();
-    return _save([for (final t in tasks) if (t.id != id) t]);
+    return _save([
+      for (final t in tasks)
+        if (t.id != id) t,
+    ]);
+  }
+
+  Future<List<TempAssignment>> purgeCompleted({
+    DateTime? now,
+  }) async {
+    final tasks = await load();
+    final cutoff = (now ?? DateTime.now()).subtract(const Duration(days: 1));
+    final expired = <TempAssignment>[];
+    final retained = <TempAssignment>[];
+    for (final task in tasks) {
+      final completedAt = task.completedAt == null
+          ? null
+          : DateTime.tryParse(task.completedAt!);
+      if (completedAt != null && !completedAt.isAfter(cutoff)) {
+        expired.add(task);
+      } else {
+        retained.add(task);
+      }
+    }
+    if (expired.isNotEmpty) await _save(retained);
+    return expired;
   }
 }
 
@@ -304,6 +406,7 @@ List<Map<String, dynamic>> mergeTasks({
     });
   }
   for (final task in tempTasks) {
+    if (task.completedAt != null) continue;
     final key = 'temp:${task.id}';
     merged.add({
       'source': 'temp',
@@ -315,13 +418,18 @@ List<Map<String, dynamic>> mergeTasks({
       'due_date': task.dueDate,
       'description': task.description,
       'links': task.links,
+      'image_paths': task.imagePaths,
+      'lesson_date': task.lessonDate,
+      'hour': task.hour,
+      'completed_at': task.completedAt,
       'slot': engine.slotFor(key, task.subject),
     });
   }
 
   merged.sort(
-    (a, b) => (a['due_date'] as String? ?? '9999-12-31T23:59')
-        .compareTo(b['due_date'] as String? ?? '9999-12-31T23:59'),
+    (a, b) => (a['due_date'] as String? ?? '9999-12-31T23:59').compareTo(
+      b['due_date'] as String? ?? '9999-12-31T23:59',
+    ),
   );
   return merged;
 }

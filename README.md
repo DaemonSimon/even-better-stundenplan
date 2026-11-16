@@ -19,6 +19,12 @@ Zeigt den Stundenplan für einen einzelnen Tag an, vergleichbar mit [virtueller-
 
 ![Tagesansicht](https://github.com/user-attachments/assets/9b4f42ee-1f79-4adc-a010-241c55a718e2)  
 
+### 📝 Lokale Hausaufgaben
+Hausaufgaben können nur aus der jeweiligen Unterrichtsstunde heraus und ohne IServ-Anmeldung eingetragen werden. Sie werden samt Bildern auf dem Gerät gespeichert. In der Aufgabenübersicht lassen sie sich als erledigt markieren und verschwinden sofort; erledigte Hausaufgaben und ihre Bilder werden nach 24 Stunden endgültig entfernt. Beim Eintragen werden Fach und Lehrkraft aus dem Stundenplan übernommen; Unterrichtstag und Abgabetermin sind identisch. Doppelstunden 1+2, 3+4, 5+6 und 7+8 werden unterstützt. In der Aufgabenübersicht zeigt jeder Eintrag das Fach und die vollständige Stundenbezeichnung; beim Bearbeiten sind nur Titel, Beschreibung und Fotos änderbar. Bilder lassen sich in der Vollbildansicht öffnen, die als einzige Ansicht Querformat erlaubt.
+
+### 📆 IServ-Kalender
+Der Kalender lädt Termine aus den verfügbaren IServ-Kalendergruppen und nutzt für ältere IServ-Versionen weiterhin den Mehrfachfeed- bzw. Kalenderseiten-/iCalendar-Fallback. Die Hausaufgabenansicht zeigt zusätzlich alle Termine der ausgewählten Woche. Jede betroffene Stunde zeigt pro Termin ein kleines Kalender-Symbol; beim Antippen sind Titel und Beschreibung sichtbar. Aus den Stundendetails lässt sich der Tageskalender mit allen Einträgen dieses Tages öffnen. Aktivierte Erinnerungen umfassen auch Kalendereinträge und zeigen „Kalender“ als Überschrift sowie den Termintitel als Text.
+
 ### 🔍 Detailansicht  
 Zeigt detaillierte Informationen zu einer Unterrichtsstunde an. Hier können zudem Aliasse für Fächer, Lehrkräfte und Räume festgelegt werden (z. B. „PO“ für „Politik“).  
 

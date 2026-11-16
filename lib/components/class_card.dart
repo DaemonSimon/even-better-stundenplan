@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/timetable.dart';
 import '../services/teacher_directory.dart';
+import 'subject_name_label.dart';
 import '../utils/block_schedule.dart';
 import '../utils/dashed_border.dart';
 
@@ -79,6 +80,7 @@ class ClassCard extends StatelessWidget {
     this.compact = false,
     this.teacherLookup,
     this.stripGroup = false,
+    this.hasHomework = false,
     this.onTap,
   });
 
@@ -106,6 +108,8 @@ class ClassCard extends StatelessWidget {
   /// Kollegiums-Nachschlagefunktion für die vollen Namen.
   final TeacherLookup? teacherLookup;
 
+  final bool hasHomework;
+
   final VoidCallback? onTap;
 
   /// Voller Name einer Lehrkraft (Kürzel -> Verzeichnis); ohne Treffer
@@ -116,9 +120,7 @@ class ClassCard extends StatelessWidget {
     final entry = lookup?.call(split.kuerzel);
     final resolved = entry?.fullName ?? split.kuerzel;
     if (!stripGroup) {
-      return split.prefix == null
-          ? resolved
-          : '${split.prefix}: $resolved';
+      return split.prefix == null ? resolved : '${split.prefix}: $resolved';
     }
     return resolved;
   }
@@ -128,7 +130,7 @@ class ClassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subject = block.subject.isEmpty ? '—' : _clean(block.subject);
+    final hasSubject = block.subject.trim().isNotEmpty;
     final room = _clean(block.room);
 
     final hPadding = compact ? 10.0 : 16.0;
@@ -137,79 +139,99 @@ class ClassCard extends StatelessWidget {
 
     final rows = <Widget>[
       Padding(
-        padding: EdgeInsets.fromLTRB(hPadding, 0, hPadding, 4),
-        child: Text(
-          subject,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: _cardWhite,
-            fontSize: subjectSize,
-            fontWeight: FontWeight.bold,
-          ),
+        padding: EdgeInsets.fromLTRB(
+          hPadding + (hasHomework ? 22 : 0),
+          0,
+          hPadding,
+          4,
         ),
+        child: hasSubject
+            ? SubjectNameLabel(
+                raw: block.subject,
+                stripGroup: stripGroup,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _cardWhite,
+                  fontSize: subjectSize,
+                  fontWeight: FontWeight.bold,
+                ),
+              )
+            : Text(
+                '—',
+                style: TextStyle(
+                  color: _cardWhite,
+                  fontSize: subjectSize,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
       ),
     ];
 
-    if (block.hasSubstitution && !block.isPartialSubstitution) {
-      // Card 2: Voll-Vertretung, eine Zeile "[Rot Vertreter] [Grau Original]".
-      final first = block.periods.first;
-      final subName = _name(first.substituteTeacher ?? '');
-      final oldName = _name(first.teacher);
-      rows.add(
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                subName.isEmpty ? '—' : subName,
-                style: TextStyle(
-                  color: substituteRed,
-                  fontWeight: FontWeight.w600,
-                  fontSize: fontSize,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                oldName.isEmpty ? '' : oldName,
-                style: TextStyle(
-                  color: cardGrey,
-                  fontSize: fontSize,
-                  decoration: TextDecoration.lineThrough,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    } else if (block.isPartialSubstitution) {
-      // Card 3: Partielle Vertretung – eine Zeile je Stunde:
-      // links Lehrkraft, rechts "N. Std". Vertretene Stunden in Rot.
-      for (final p in block.periods) {
+    if (block.hasSubstitution) {
+      final groupedPeriods = <List<LessonEntry>>[];
+      for (final period in block.periods) {
+        final previous = groupedPeriods.isEmpty
+            ? null
+            : groupedPeriods.last.first;
+        if (previous != null &&
+            previous.teacher == period.teacher &&
+            previous.substituteTeacher == period.substituteTeacher) {
+          groupedPeriods.last.add(period);
+        } else {
+          groupedPeriods.add([period]);
+        }
+      }
+
+      for (final periods in groupedPeriods) {
+        final p = periods.first;
         final isSub = p.isSubstitution;
-        final name = isSub
-            ? _name(p.substituteTeacher ?? '')
-            : _name(p.teacher);
         rows.add(
           Padding(
             padding: EdgeInsets.symmetric(horizontal: hPadding, vertical: 2),
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    name.isEmpty ? '—' : name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isSub ? substituteRed : cardGrey,
-                      fontSize: fontSize,
-                    ),
+                  child: isSub
+                      ? SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _name(p.substituteTeacher!),
+                                style: TextStyle(
+                                  color: substituteRed,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: fontSize,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _name(p.teacher),
+                                style: TextStyle(
+                                  color: substituteRed,
+                                  fontSize: fontSize,
+                                  decoration: TextDecoration.lineThrough,
+                                  decorationColor: substituteRed,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Text(
+                          _name(p.teacher),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: cardGrey,
+                            fontSize: fontSize,
+                          ),
+                        ),
                   ),
-                ),
                 const SizedBox(width: 8),
                 Text(
-                  '${p.period}. Std',
+                  '${periods.map((period) => period.period).join('+')}. Std',
                   style: TextStyle(
                     color: isSub ? substituteRed : cardGrey,
                     fontSize: fontSize,
@@ -374,7 +396,6 @@ class LunchDivider extends StatelessWidget {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-
                 ],
               ),
             ),
@@ -385,5 +406,3 @@ class LunchDivider extends StatelessWidget {
     );
   }
 }
-
-

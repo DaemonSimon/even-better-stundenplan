@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../models/timetable.dart';
 import '../models/timetable_result.dart';
 import '../providers/teacher_directory_provider.dart';
+import '../services/iserv_calendar.dart';
 import '../services/stundenplan_repository.dart';
 import 'daily_agenda_view.dart';
 import 'day_selector.dart';
@@ -35,6 +36,7 @@ class StundenplanWidget extends StatefulWidget {
     this.tickInterval,
     this.sessionId,
     this.group,
+    this.calendarEvents = const [],
   });
 
   /// Montag der anzuzeigenden Woche.
@@ -64,6 +66,7 @@ class StundenplanWidget extends StatefulWidget {
   /// Kursgruppe des Nutzers (z. B. "A"/"B"); null = alle Gruppen zeigen.
   /// Steuert die Gruppen-Filterung (Regel 5).
   final String? group;
+  final List<IservCalendarEvent> calendarEvents;
 
   @override
   State<StundenplanWidget> createState() => _StundenplanWidgetState();
@@ -163,7 +166,14 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     final weekDays = allDays.length >= 5 ? allDays.sublist(0, 5) : allDays;
 
     if (widget.viewMode == TimetableViewMode.weekly) {
-      return IservTasksView();
+      final weekEnd = widget.weekStart.add(const Duration(days: 7));
+      final weekEvents = widget.calendarEvents.where((event) {
+        final eventEnd = event.end ?? event.start;
+        return event.start.isBefore(weekEnd) &&
+            (eventEnd.isAfter(widget.weekStart) ||
+                event.start.isAtSameMomentAs(widget.weekStart));
+      }).toList()..sort((a, b) => a.start.compareTo(b.start));
+      return IservTasksView(calendarEvents: weekEvents);
     }
 
     // Tagesansicht: oben die feste Tagesauswahl, darunter die per Wisch
@@ -221,7 +231,7 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
                         clock: widget.clock,
                         tickInterval: widget.tickInterval,
                         teacherLookup: widget.teacherDirectory?.lookup,
-                        sessionId: widget.sessionId,
+                        calendarEvents: widget.calendarEvents,
                         group: widget.group,
                         minHeight: constraints.maxHeight,
                       ),
