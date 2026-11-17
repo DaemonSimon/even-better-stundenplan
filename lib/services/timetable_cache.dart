@@ -42,6 +42,24 @@ class TimetableCache {
     await _disk.save(weekKey, value);
   }
 
+  /// Legt eine von der Platte geladene (also veraltete) Woche in den
+  /// Speicher, damit sie nicht bei jedem Aufruf neu gelesen wird. Sie gilt
+  /// nicht als frisch und löst daher weiterhin eine Aktualisierung aus.
+  void rememberStale(String weekKey, WeeklyTimetable value) {
+    _memory[weekKey] = _CacheEntry(
+      value: value,
+      fetchedAt: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+
+  /// Markiert alle Wochen als veraltet: Sie werden weiter sofort angezeigt,
+  /// beim nächsten Aufruf aber im Hintergrund neu geladen.
+  void markAllStale() {
+    for (final key in _memory.keys.toList()) {
+      rememberStale(key, _memory[key]!.value);
+    }
+  }
+
   void clear() {
     _memory.clear();
   }
@@ -113,10 +131,9 @@ class TimetableDiskCache {
   WeeklyTimetable _weekFromJson(Map<String, dynamic> json) {
     final rawDays = json['days'] as List<dynamic>? ?? [];
     return WeeklyTimetable(
-      weekStart:
-          json['weekStart'] is String
-              ? DateTime.parse(json['weekStart'] as String)
-              : DateTime.now(),
+      weekStart: json['weekStart'] is String
+          ? DateTime.parse(json['weekStart'] as String)
+          : DateTime.now(),
       days: rawDays
           .whereType<Map<String, dynamic>>()
           .map(DailyTimetable.fromJson)

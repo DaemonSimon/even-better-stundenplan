@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
 import '../models/timetable.dart';
 import '../models/timetable_result.dart';
 import '../providers/date_utilities.dart';
+import 'connectivity_monitor.dart';
 import 'session_manager.dart';
 import 'stundenplan_api.dart';
 import 'stundenplan_parser.dart';
@@ -21,8 +25,14 @@ class _FetchAuthExpired extends _FetchResult {}
 
 class _FetchFailed extends _FetchResult {}
 
-/// Holt eine komplette Woche (Mo–Fr) über einen einzigen page-5-Request,
-/// parst die Antwort und nutzt den Cache als Offline-/Reauth-Fallback.
+/// Holt eine komplette Woche (Mo–Fr) über einen einzigen page-5-Request
+/// und parst die Antwort.
+///
+/// Offline-first: Liegt die Woche schon im Cache (Speicher oder Platte),
+/// wird sie sofort geliefert und nur im Hintergrund aktualisiert. Erst
+/// wenn sich dabei etwas geändert hat, werden die Listener benachrichtigt.
+/// Ohne Internet bleibt der gespeicherte Stand stehen; sobald der
+/// [ConnectivityMonitor] wieder Verbindung meldet, wird neu geladen.
 ///
 /// Bei abgelaufener Sitzung wird im Hintergrund (ohne User-Interaktion)
 /// eine neue Sitzung über die gespeicherten Zugangsdaten geholt und die
@@ -33,19 +43,41 @@ class StundenplanRepository extends ChangeNotifier {
     StundenplanApi? api,
     StundenplanParser? parser,
     TimetableCache? cache,
+    ConnectivityMonitor? connectivity,
   }) : _sessionManager = sessionManager,
        _api = api ?? StundenplanApi(),
        _parser = parser ?? StundenplanParser(),
-       _cache = cache ?? TimetableCache();
+       _cache = cache ?? TimetableCache(),
+       _connectivity = connectivity ?? ConnectivityMonitor.instance {
+    _connectivity.addListener(_onConnectivityChanged);
+  }
 
   final SessionManager _sessionManager;
   final StundenplanApi _api;
   final StundenplanParser _parser;
   final TimetableCache _cache;
+  final ConnectivityMonitor _connectivity;
 
   bool _reauthRunning = false;
 
-  void refresh() => notifyListeners();
+  /// Wochen, die gerade im Hintergrund aktualisiert werden.
+  final Set<String> _refreshing = {};
+
+  /// Zeigt weiter den gespeicherten Stand, lädt aber im Hintergrund neu.
+  void refresh() {
+    _cache.markAllStale();
+    notifyListeners();
+  }
+
+  void _onConnectivityChanged() {
+    if (_connectivity.isOnline) refresh();
+  }
+
+  @override
+  void dispose() {
+    _connectivity.removeListener(_onConnectivityChanged);
+    super.dispose();
+  }
 
   Future<TimetableResult> getTimetable(
     String dateString, {
@@ -54,10 +86,21 @@ class StundenplanRepository extends ChangeNotifier {
     final weekStart = getMondayOfWeek(dateString);
     final weekKey = DateFormat('dd.MM.yyyy').format(weekStart);
 
+    // Frisch im Speicher: kein Netz nötig.
+    final fresh = _cache.getFresh(weekKey);
+    if (fresh != null) return _wrapResult(fresh, weeklyMode, dateString);
+
+    // Gespeicherter Stand vorhanden: sofort anzeigen, im Hintergrund
+    // aktualisieren.
+    final cached = await _getCached(weekKey);
+    if (cached != null) {
+      unawaited(_refreshInBackground(weekKey, weekStart, cached));
+      return _wrapResult(cached, weeklyMode, dateString);
+    }
+
+    // Nichts gespeichert: auf das Netz warten.
     final sessionId = _sessionManager.sessionId;
     if (sessionId == null || sessionId.isEmpty) {
-      // Keine Sitzung vorhanden – ggf. aus dem Cache bedienen und still
-      // neu anmelden.
       return _handleAuthExpired(weekKey, weekStart, weeklyMode, dateString);
     }
 
@@ -72,13 +115,43 @@ class StundenplanRepository extends ChangeNotifier {
         return _handleAuthExpired(weekKey, weekStart, weeklyMode, dateString);
 
       case _FetchFailed():
-        final cached = await _getCached(weekKey);
-        if (cached != null) {
-          return _wrapResult(cached, weeklyMode, dateString);
-        }
         return const TimetableNetworkError();
     }
   }
+
+  /// Lädt eine bereits angezeigte Woche im Hintergrund neu und meldet sich
+  /// nur, wenn sich etwas geändert hat.
+  Future<void> _refreshInBackground(
+    String weekKey,
+    DateTime weekStart,
+    WeeklyTimetable shown,
+  ) async {
+    if (!_refreshing.add(weekKey)) return;
+    try {
+      final sessionId = _sessionManager.sessionId;
+      if (sessionId == null || sessionId.isEmpty) {
+        unawaited(_silentReauthenticate(weekKey, weekStart));
+        return;
+      }
+      final fetched = await _tryFetchWeek(weekStart, weekKey);
+      switch (fetched) {
+        case _FetchSuccess(:final week):
+          await _cache.put(weekKey, week);
+          if (!_sameWeek(week, shown)) notifyListeners();
+        case _FetchAuthExpired():
+          unawaited(_silentReauthenticate(weekKey, weekStart));
+        case _FetchFailed():
+          // Offline oder Server down: gespeicherten Stand behalten.
+          break;
+      }
+    } finally {
+      _refreshing.remove(weekKey);
+    }
+  }
+
+  bool _sameWeek(WeeklyTimetable a, WeeklyTimetable b) =>
+      jsonEncode([for (final d in a.days) d.toJson()]) ==
+      jsonEncode([for (final d in b.days) d.toJson()]);
 
   Future<TimetableResult> _handleAuthExpired(
     String weekKey,
@@ -146,10 +219,7 @@ class StundenplanRepository extends ChangeNotifier {
     }
   }
 
-  Future<_FetchResult> _tryFetchWeek(
-    DateTime weekStart,
-    String weekKey,
-  ) async {
+  Future<_FetchResult> _tryFetchWeek(DateTime weekStart, String weekKey) async {
     final sessionId = _sessionManager.sessionId;
     if (sessionId == null || sessionId.isEmpty) {
       return _FetchAuthExpired();
@@ -173,6 +243,8 @@ class StundenplanRepository extends ChangeNotifier {
       if (!_parser.hasTimetableStructure(response.body)) {
         return _FetchFailed();
       }
+      // Server hat geantwortet: Verbindung steht.
+      _connectivity.reportSuccess();
 
       final weeklySlots = _parser.parseWeeklyTimetable(response.body);
       // Mo–Fr Datum zuweisen.
@@ -185,10 +257,9 @@ class StundenplanRepository extends ChangeNotifier {
           ),
         );
       }
-      return _FetchSuccess(
-        WeeklyTimetable(weekStart: weekStart, days: days),
-      );
-    } catch (_) {
+      return _FetchSuccess(WeeklyTimetable(weekStart: weekStart, days: days));
+    } catch (error) {
+      if (isNetworkError(error)) _connectivity.reportFailure();
       return _FetchFailed();
     }
   }
@@ -198,6 +269,8 @@ class StundenplanRepository extends ChangeNotifier {
     if (fresh != null) return fresh;
     final stale = _cache.getStale(weekKey);
     if (stale != null) return stale;
-    return _cache.getFromDisk(weekKey);
+    final disk = await _cache.getFromDisk(weekKey);
+    if (disk != null) _cache.rememberStale(weekKey, disk);
+    return disk;
   }
 }

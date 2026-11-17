@@ -11,6 +11,7 @@ class AppSettings {
     this.reminderHour = 18,
     this.reminderMinute = 0,
     this.syncIservCalendar = false,
+    this.preloadIservFiles = true,
   });
 
   final bool homeworkRemindersEnabled;
@@ -21,6 +22,9 @@ class AppSettings {
   final int reminderMinute;
   final bool syncIservCalendar;
 
+  /// Anhänge laufender IServ-Aufgaben automatisch offline speichern.
+  final bool preloadIservFiles;
+
   AppSettings copyWith({
     bool? homeworkRemindersEnabled,
     bool? remindAboutHomework,
@@ -29,6 +33,7 @@ class AppSettings {
     int? reminderHour,
     int? reminderMinute,
     bool? syncIservCalendar,
+    bool? preloadIservFiles,
   }) => AppSettings(
     homeworkRemindersEnabled:
         homeworkRemindersEnabled ?? this.homeworkRemindersEnabled,
@@ -38,6 +43,7 @@ class AppSettings {
     reminderHour: reminderHour ?? this.reminderHour,
     reminderMinute: reminderMinute ?? this.reminderMinute,
     syncIservCalendar: syncIservCalendar ?? this.syncIservCalendar,
+    preloadIservFiles: preloadIservFiles ?? this.preloadIservFiles,
   );
 }
 
@@ -51,6 +57,7 @@ class AppSettingsStore {
   static const _reminderHourKey = 'homework_reminder_hour';
   static const _reminderMinuteKey = 'homework_reminder_minute';
   static const _calendarSyncKey = 'iserv_calendar_sync_enabled';
+  static const _preloadIservFilesKey = 'iserv_preload_files';
 
   static final ValueNotifier<int> revision = ValueNotifier(0);
 
@@ -64,6 +71,7 @@ class AppSettingsStore {
       reminderHour: (prefs.getInt(_reminderHourKey) ?? 18).clamp(0, 23),
       reminderMinute: (prefs.getInt(_reminderMinuteKey) ?? 0).clamp(0, 59),
       syncIservCalendar: prefs.getBool(_calendarSyncKey) ?? false,
+      preloadIservFiles: prefs.getBool(_preloadIservFilesKey) ?? true,
     );
   }
 
@@ -73,14 +81,8 @@ class AppSettingsStore {
       _remindersEnabledKey,
       settings.homeworkRemindersEnabled,
     );
-    await prefs.setBool(
-      _remindAboutHomeworkKey,
-      settings.remindAboutHomework,
-    );
-    await prefs.setBool(
-      _remindAboutCalendarKey,
-      settings.remindAboutCalendar,
-    );
+    await prefs.setBool(_remindAboutHomeworkKey, settings.remindAboutHomework);
+    await prefs.setBool(_remindAboutCalendarKey, settings.remindAboutCalendar);
     await prefs.setInt(
       _reminderDaysKey,
       settings.reminderDaysBefore.clamp(0, 7),
@@ -91,6 +93,7 @@ class AppSettingsStore {
       settings.reminderMinute.clamp(0, 59),
     );
     await prefs.setBool(_calendarSyncKey, settings.syncIservCalendar);
+    await prefs.setBool(_preloadIservFilesKey, settings.preloadIservFiles);
     revision.value++;
   }
 }

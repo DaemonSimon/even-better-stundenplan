@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/app_settings.dart';
 import '../services/homework_reminders.dart';
+import '../services/iserv_logout.dart';
 import 'class_card.dart';
 
 /// Füllfarbe des ausgewählten Buttons – eine flache, etwas hellere
@@ -59,6 +60,7 @@ class GroupSettingsSheet extends StatefulWidget {
 class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
   AppSettings _settings = const AppSettings();
   bool _loading = true;
+  bool _iservLoggedIn = false;
 
   @override
   void initState() {
@@ -68,9 +70,11 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
 
   Future<void> _loadSettings() async {
     final settings = await AppSettingsStore().load();
+    final iservLoggedIn = await isIservLoginStored();
     if (!mounted) return;
     setState(() {
       _settings = settings;
+      _iservLoggedIn = iservLoggedIn;
       _loading = false;
     });
   }
@@ -126,6 +130,36 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
     widget.onLogout?.call();
   }
 
+  Future<void> _confirmIservLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Von IServ abmelden?'),
+        content: const Text(
+          'Gespeicherte IServ-Aufgaben und vorab geladene Dateien werden '
+          'vom Gerät gelöscht.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Abmelden'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await logoutFromIserv();
+    if (!mounted) return;
+    setState(() => _iservLoggedIn = false);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Von IServ abgemeldet')));
+  }
+
   Future<void> _chooseReminderTime() async {
     final time = await showTimePicker(
       context: context,
@@ -136,10 +170,7 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
     );
     if (time == null) return;
     await _saveSettings(
-      _settings.copyWith(
-        reminderHour: time.hour,
-        reminderMinute: time.minute,
-      ),
+      _settings.copyWith(reminderHour: time.hour, reminderMinute: time.minute),
     );
   }
 
@@ -152,167 +183,198 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Einstellungen',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Kursgruppe',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Zeigt nur die Kurse deiner Gruppe an',
-              style: theme.textTheme.bodySmall?.copyWith(color: cardGrey),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _GroupSegment(
-                    label: 'A',
-                    selected: widget.group?.toUpperCase() == 'A',
-                    onTap: () => _select(context, 'A'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _GroupSegment(
-                    label: 'B',
-                    selected: widget.group?.toUpperCase() == 'B',
-                    onTap: () => _select(context, 'B'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Hausaufgabenerinnerung',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: LinearProgressIndicator(),
-              )
-            else ...[
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Erinnerungen aktivieren'),
-                value: _settings.homeworkRemindersEnabled,
-                onChanged: (value) => _saveSettings(
-                  _settings.copyWith(homeworkRemindersEnabled: value),
-                ),
-              ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Hausaufgaben'),
-                value: _settings.remindAboutHomework,
-                onChanged: _settings.homeworkRemindersEnabled
-                    ? (value) => _saveSettings(
-                        _settings.copyWith(remindAboutHomework: value),
-                      )
-                    : null,
-              ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Kalendertermine'),
-                subtitle: _settings.syncIservCalendar
-                    ? null
-                    : const Text('Aktiviere zuerst die IServ-Kalendersynchronisierung'),
-                value: _settings.remindAboutCalendar,
-                onChanged:
-                    _settings.homeworkRemindersEnabled &&
-                        _settings.syncIservCalendar
-                    ? (value) => _saveSettings(
-                        _settings.copyWith(remindAboutCalendar: value),
-                      )
-                    : null,
-              ),
-              Row(
-                children: [
-                  const Expanded(child: Text('Erinnern')),
-                  DropdownButton<int>(
-                    value: _settings.reminderDaysBefore,
-                    items: [
-                      for (var days = 0; days <= 7; days++)
-                        DropdownMenuItem(
-                          value: days,
-                          child: Text(
-                            days == 0 ? 'Am selben Tag' : '$days Tage vorher',
-                          ),
-                        ),
-                    ],
-                    onChanged: _settings.homeworkRemindersEnabled
-                        ? (days) {
-                            if (days == null) return;
-                            _saveSettings(
-                              _settings.copyWith(reminderDaysBefore: days),
-                            );
-                          }
-                        : null,
-                  ),
-                ],
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: OutlinedButton.icon(
-                  onPressed: _settings.homeworkRemindersEnabled
-                      ? _chooseReminderTime
-                      : null,
-                  icon: const Icon(Icons.schedule),
-                  label: Text(
-                    'Uhrzeit ${_formatTime(_settings.reminderHour, _settings.reminderMinute)}',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                'Stundenplan',
+                'Einstellungen',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Kursgruppe',
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Mit IServ-Kalender synchronisieren'),
-                value: _settings.syncIservCalendar,
-                onChanged: (value) => _saveSettings(
-                  _settings.copyWith(syncIservCalendar: value),
+              const SizedBox(height: 4),
+              Text(
+                'Zeigt nur die Kurse deiner Gruppe an',
+                style: theme.textTheme.bodySmall?.copyWith(color: cardGrey),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _GroupSegment(
+                      label: 'A',
+                      selected: widget.group?.toUpperCase() == 'A',
+                      onTap: () => _select(context, 'A'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _GroupSegment(
+                      label: 'B',
+                      selected: widget.group?.toUpperCase() == 'B',
+                      onTap: () => _select(context, 'B'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Hausaufgabenerinnerung',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              if (widget.onLogout != null) ...[
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: LinearProgressIndicator(),
+                )
+              else ...[
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Erinnerungen aktivieren'),
+                  value: _settings.homeworkRemindersEnabled,
+                  onChanged: (value) => _saveSettings(
+                    _settings.copyWith(homeworkRemindersEnabled: value),
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Hausaufgaben'),
+                  value: _settings.remindAboutHomework,
+                  onChanged: _settings.homeworkRemindersEnabled
+                      ? (value) => _saveSettings(
+                          _settings.copyWith(remindAboutHomework: value),
+                        )
+                      : null,
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Kalendertermine'),
+                  subtitle: _settings.syncIservCalendar
+                      ? null
+                      : const Text(
+                          'Aktiviere zuerst die IServ-Kalendersynchronisierung',
+                        ),
+                  value: _settings.remindAboutCalendar,
+                  onChanged:
+                      _settings.homeworkRemindersEnabled &&
+                          _settings.syncIservCalendar
+                      ? (value) => _saveSettings(
+                          _settings.copyWith(remindAboutCalendar: value),
+                        )
+                      : null,
+                ),
+                Row(
+                  children: [
+                    const Expanded(child: Text('Erinnern')),
+                    DropdownButton<int>(
+                      value: _settings.reminderDaysBefore,
+                      items: [
+                        for (var days = 0; days <= 7; days++)
+                          DropdownMenuItem(
+                            value: days,
+                            child: Text(
+                              days == 0 ? 'Am selben Tag' : '$days Tage vorher',
+                            ),
+                          ),
+                      ],
+                      onChanged: _settings.homeworkRemindersEnabled
+                          ? (days) {
+                              if (days == null) return;
+                              _saveSettings(
+                                _settings.copyWith(reminderDaysBefore: days),
+                              );
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    onPressed: _settings.homeworkRemindersEnabled
+                        ? _chooseReminderTime
+                        : null,
+                    icon: const Icon(Icons.schedule),
+                    label: Text(
+                      'Uhrzeit ${_formatTime(_settings.reminderHour, _settings.reminderMinute)}',
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 Text(
-                  'Konto',
+                  'Stundenplan',
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: _confirmLogout,
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Vom Stundenplan abmelden'),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Mit IServ-Kalender synchronisieren'),
+                  value: _settings.syncIservCalendar,
+                  onChanged: (value) => _saveSettings(
+                    _settings.copyWith(syncIservCalendar: value),
+                  ),
                 ),
+                const SizedBox(height: 16),
+                Text(
+                  'IServ',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Aufgaben-Dateien vorab laden'),
+                  subtitle: const Text(
+                    'Anhänge laufender Aufgaben automatisch speichern, damit '
+                    'sie auch offline öffnen. Ausschalten löscht die '
+                    'gespeicherten Dateien.',
+                  ),
+                  value: _settings.preloadIservFiles,
+                  onChanged: (value) => _saveSettings(
+                    _settings.copyWith(preloadIservFiles: value),
+                  ),
+                ),
+                if (_iservLoggedIn) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _confirmIservLogout,
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Von IServ abmelden'),
+                  ),
+                ],
+                if (widget.onLogout != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Konto',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _confirmLogout,
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Vom Stundenplan abmelden'),
+                  ),
+                ],
               ],
             ],
-          ],
           ),
         ),
       ),

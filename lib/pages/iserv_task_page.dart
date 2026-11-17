@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 
+import '../services/iserv_offline_store.dart';
 import '../services/iserv_session.dart';
 import '../services/iserv_task_detail.dart';
 import 'iserv_web_page.dart';
@@ -15,7 +18,11 @@ class IservTaskPage extends StatefulWidget {
     required this.session,
     this.title = 'Aufgabe',
     this.loader,
+    this.offlineStore,
   });
+
+  /// Offline-Ablage für die "Cached"-Markierung (Standard: App-weit).
+  final IservOfflineStore? offlineStore;
 
   final String url;
   final IservSession session;
@@ -34,8 +41,28 @@ class _IservTaskPageState extends State<IservTaskPage> {
   late Future<IservTaskDetail> _detail = _load();
   String? _downloading;
 
-  Future<IservTaskDetail> _load() =>
-      widget.loader?.call() ?? fetchTaskDetail(widget.session, widget.url);
+  /// URLs der Anhänge, die offline gespeichert sind.
+  Set<String> _cachedUrls = const {};
+
+  Future<IservTaskDetail> _load() async {
+    final detail =
+        await (widget.loader?.call() ??
+            fetchTaskDetail(widget.session, widget.url));
+    // Markierung nachträglich ergänzen, Seite nicht darauf warten lassen.
+    unawaited(_checkCached(detail));
+    return detail;
+  }
+
+  Future<void> _checkCached(IservTaskDetail detail) async {
+    final store = widget.offlineStore ?? IservOfflineStore.instance;
+    final cached = <String>{};
+    for (final attachment in detail.attachments) {
+      if (await store.cachedAttachment(attachment) != null) {
+        cached.add(attachment.url);
+      }
+    }
+    if (mounted && cached.isNotEmpty) setState(() => _cachedUrls = cached);
+  }
 
   void _openInIserv() {
     Navigator.of(context).push(
@@ -170,6 +197,7 @@ class _IservTaskPageState extends State<IservTaskPage> {
           for (final attachment in detail.attachments)
             _AttachmentTile(
               attachment: attachment,
+              cached: _cachedUrls.contains(attachment.url),
               loading: _downloading == attachment.url,
               onTap: _downloading == null
                   ? () => _openAttachment(attachment)
@@ -278,11 +306,15 @@ class _AttachmentTile extends StatelessWidget {
   const _AttachmentTile({
     required this.attachment,
     required this.loading,
+    this.cached = false,
     this.onTap,
   });
 
   final IservAttachment attachment;
   final bool loading;
+
+  /// Offline gespeichert: grüne "Cached"-Pille anzeigen.
+  final bool cached;
   final VoidCallback? onTap;
 
   @override
@@ -292,18 +324,50 @@ class _AttachmentTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       child: ListTile(
         leading: Icon(
-          isPdf ? Icons.picture_as_pdf_outlined : Icons.insert_drive_file_outlined,
+          isPdf
+              ? Icons.picture_as_pdf_outlined
+              : Icons.insert_drive_file_outlined,
         ),
         title: Text(attachment.name),
         subtitle: attachment.size.isEmpty ? null : Text(attachment.size),
-        trailing: loading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.download_outlined),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (cached) ...[const _CachedPill(), const SizedBox(width: 8)],
+            loading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_outlined),
+          ],
+        ),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+/// Kleine grüne Markierung für offline gespeicherte Dateien.
+class _CachedPill extends StatelessWidget {
+  const _CachedPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2E7D32),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: const Text(
+        'Cached',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

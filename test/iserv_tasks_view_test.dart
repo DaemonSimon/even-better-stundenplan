@@ -196,8 +196,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Projekt Netzteil'), findsOneWidget);
 
-    // Abmelden steht unten statt als Symbol oben.
-    expect(find.text('Von IServ abmelden'), findsOneWidget);
+    // Abmelden ist in die Einstellungen umgezogen.
+    expect(find.text('Von IServ abmelden'), findsNothing);
   });
 
   testWidgets(

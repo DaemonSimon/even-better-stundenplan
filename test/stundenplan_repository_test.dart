@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 
 import 'package:better_stundenplan/models/timetable_result.dart';
 import 'package:better_stundenplan/models/timetable.dart';
+import 'package:better_stundenplan/services/connectivity_monitor.dart';
 import 'package:better_stundenplan/services/secure_storage.dart';
 import 'package:better_stundenplan/services/session_manager.dart';
 import 'package:better_stundenplan/services/stundenplan_api.dart';
@@ -171,53 +172,183 @@ void main() {
       expect(result, isA<TimetableSuccess>());
     });
 
-    test('a parse failure keeps the cached week instead of caching an empty one',
+    test(
+      'a parse failure keeps the cached week instead of caching an empty one',
+      () async {
+        final sharedCache = TimetableCache(disk: _NoopDiskCache());
+        final client = MockClient(
+          (request) async =>
+              http.Response(fixture('week_page5_real.html'), 200),
+        );
+        await StundenplanRepository(
+          sessionManager: sessionManager,
+          api: StundenplanApi(client: client),
+          cache: sharedCache,
+        ).getTimetable('10.08.2026', weeklyMode: true);
+        final goodWeek = sharedCache.getStale('10.08.2026')!;
+        expect(goodWeek.days.any((d) => d.timeSlots.isNotEmpty), isTrue);
+
+        final result = await StundenplanRepository(
+          sessionManager: sessionManager,
+          api: StundenplanApi(client: client),
+          parser: _ThrowingParser(),
+          cache: sharedCache,
+        ).getTimetable('10.08.2026', weeklyMode: true);
+
+        expect(result, isA<TimetableSuccess>());
+        final week = (result as TimetableSuccess).timetable;
+        expect(week.days.any((d) => d.timeSlots.isNotEmpty), isTrue);
+        expect(sharedCache.getStale('10.08.2026'), same(goodWeek));
+      },
+    );
+
+    test(
+      'single day mode returns only the requested day from the week',
+      () async {
+        final client = MockClient(
+          (request) async =>
+              http.Response(fixture('week_page5_real.html'), 200),
+        );
+        final repository = StundenplanRepository(
+          sessionManager: sessionManager,
+          api: StundenplanApi(client: client),
+          cache: TimetableCache(disk: _NoopDiskCache()),
+        );
+
+        // Donnerstag, 13.08.2026 (Index 3 in der Woche).
+        final result = await repository.getTimetable(
+          '13.08.2026',
+          weeklyMode: false,
+        );
+
+        expect(result, isA<TimetableSuccess>());
+        final week = (result as TimetableSuccess).timetable;
+        expect(week.days, hasLength(1));
+        expect(week.days.single.date.day, 13);
+      },
+    );
+
+    group('offline-first', () {
+      late ConnectivityMonitor connectivity;
+      late TimetableCache cache;
+
+      setUp(() async {
+        connectivity = ConnectivityMonitor(pollingEnabled: false);
+        cache = TimetableCache(disk: _NoopDiskCache());
+        // Woche einmal laden, damit sie gespeichert ist.
+        await StundenplanRepository(
+          sessionManager: sessionManager,
+          api: StundenplanApi(
+            client: MockClient(
+              (_) async => http.Response(fixture('week_page5_real.html'), 200),
+            ),
+          ),
+          cache: cache,
+          connectivity: connectivity,
+        ).getTimetable('10.08.2026', weeklyMode: true);
+      });
+
+      test('a fresh week is served without any request', () async {
+        var requests = 0;
+        final repository = StundenplanRepository(
+          sessionManager: sessionManager,
+          api: StundenplanApi(
+            client: MockClient((_) async {
+              requests++;
+              return http.Response('', 500);
+            }),
+          ),
+          cache: cache,
+          connectivity: connectivity,
+        );
+
+        final result = await repository.getTimetable(
+          '10.08.2026',
+          weeklyMode: true,
+        );
+
+        expect(result, isA<TimetableSuccess>());
+        expect(requests, 0);
+      });
+
+      test(
+        'a stale week is shown at once and updated in the background',
         () async {
-      final sharedCache = TimetableCache(disk: _NoopDiskCache());
-      final client = MockClient(
-        (request) async => http.Response(fixture('week_page5_real.html'), 200),
-      );
-      await StundenplanRepository(
-        sessionManager: sessionManager,
-        api: StundenplanApi(client: client),
-        cache: sharedCache,
-      ).getTimetable('10.08.2026', weeklyMode: true);
-      final goodWeek = sharedCache.getStale('10.08.2026')!;
-      expect(goodWeek.days.any((d) => d.timeSlots.isNotEmpty), isTrue);
+          cache.markAllStale();
+          final oldWeek = cache.getStale('10.08.2026')!;
+          final repository = StundenplanRepository(
+            sessionManager: sessionManager,
+            api: StundenplanApi(
+              client: MockClient(
+                (_) async =>
+                    http.Response(fixture('week_with_double_hours.html'), 200),
+              ),
+            ),
+            cache: cache,
+            connectivity: connectivity,
+          );
+          var notified = 0;
+          repository.addListener(() => notified++);
 
-      final result = await StundenplanRepository(
-        sessionManager: sessionManager,
-        api: StundenplanApi(client: client),
-        parser: _ThrowingParser(),
-        cache: sharedCache,
-      ).getTimetable('10.08.2026', weeklyMode: true);
+          final first = await repository.getTimetable(
+            '10.08.2026',
+            weeklyMode: true,
+          );
+          expect((first as TimetableSuccess).timetable, same(oldWeek));
 
-      expect(result, isA<TimetableSuccess>());
-      final week = (result as TimetableSuccess).timetable;
-      expect(week.days.any((d) => d.timeSlots.isNotEmpty), isTrue);
-      expect(sharedCache.getStale('10.08.2026'), same(goodWeek));
-    });
-
-    test('single day mode returns only the requested day from the week', () async {
-      final client = MockClient(
-        (request) async => http.Response(fixture('week_page5_real.html'), 200),
-      );
-      final repository = StundenplanRepository(
-        sessionManager: sessionManager,
-        api: StundenplanApi(client: client),
-        cache: TimetableCache(disk: _NoopDiskCache()),
+          await pumpEventQueue();
+          expect(notified, 1);
+          final updated = cache.getFresh('10.08.2026');
+          expect(updated, isNotNull);
+          expect(updated, isNot(same(oldWeek)));
+        },
       );
 
-      // Donnerstag, 13.08.2026 (Index 3 in der Woche).
-      final result = await repository.getTimetable(
-        '13.08.2026',
-        weeklyMode: false,
-      );
+      test('offline keeps the stored week and does not notify', () async {
+        cache.markAllStale();
+        final oldWeek = cache.getStale('10.08.2026')!;
+        final repository = StundenplanRepository(
+          sessionManager: sessionManager,
+          api: StundenplanApi(
+            client: MockClient(
+              (_) async => throw http.ClientException('offline'),
+            ),
+          ),
+          cache: cache,
+          connectivity: connectivity,
+        );
+        var notified = 0;
+        repository.addListener(() => notified++);
 
-      expect(result, isA<TimetableSuccess>());
-      final week = (result as TimetableSuccess).timetable;
-      expect(week.days, hasLength(1));
-      expect(week.days.single.date.day, 13);
+        final result = await repository.getTimetable(
+          '10.08.2026',
+          weeklyMode: true,
+        );
+        await pumpEventQueue();
+
+        expect((result as TimetableSuccess).timetable, same(oldWeek));
+        expect(notified, 0);
+        expect(connectivity.isOnline, isFalse);
+      });
+
+      test('reloads when the connection comes back', () async {
+        final repository = StundenplanRepository(
+          sessionManager: sessionManager,
+          cache: cache,
+          connectivity: connectivity,
+        );
+        var notified = 0;
+        repository.addListener(() => notified++);
+
+        connectivity.reportFailure();
+        expect(notified, 0);
+        connectivity.reportSuccess();
+
+        expect(notified, 1);
+        expect(cache.getFresh('10.08.2026'), isNull);
+        expect(cache.getStale('10.08.2026'), isNotNull);
+        repository.dispose();
+      });
     });
   });
 }

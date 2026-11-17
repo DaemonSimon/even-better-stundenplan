@@ -181,7 +181,6 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     // Mo–Fr für die Auswahl.
     final weekDays = allDays.length >= 5 ? allDays.sublist(0, 5) : allDays;
 
-
     // Tagesansicht: oben die feste Tagesauswahl, darunter die per Wisch
     // durchblätterbaren Tage (Montag zuerst -> nach links wischen
     // wechselt zum nächsten Tag).
@@ -200,7 +199,8 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
             // Vor Montag / nach Freitag je eine zusätzliche Seite: Wer
             // dorthin wischt, landet am Freitag der Vorwoche bzw. am
             // Montag der nächsten Woche.
-            itemCount: _leadingPages +
+            itemCount:
+                _leadingPages +
                 weekDays.length +
                 (widget.onNextWeek != null ? 1 : 0),
             onPageChanged: (page) {
@@ -351,7 +351,10 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     return FutureBuilder<TimetableResult>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        // Beim Neuladen den bisherigen Stand stehen lassen statt kurz
+        // einen Ladekreis zu zeigen.
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
 

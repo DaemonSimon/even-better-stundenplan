@@ -4,6 +4,8 @@ import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html;
 import 'package:path_provider/path_provider.dart';
 
+import 'connectivity_monitor.dart';
+import 'iserv_offline_store.dart';
 import 'iserv_session.dart';
 
 /// Datei-Anhang einer IServ-Aufgabe.
@@ -129,15 +131,14 @@ IservTaskDetail parseTaskDetail(String source, {String baseUrl = ''}) {
   final title = rawTitle.replaceFirst(RegExp(r'^Aufgabe\s*-\s*'), '');
 
   final description = taskPanel?.querySelector('.text-break-word');
-  final metaCells = taskPanel?.querySelectorAll('table.table-condensed tbody td') ??
+  final metaCells =
+      taskPanel?.querySelectorAll('table.table-condensed tbody td') ??
       const <dom.Element>[];
   final authorLink = metaCells.isNotEmpty
       ? metaCells[0].querySelector('a.mailto')
       : null;
   final dueCell = metaCells.length > 2 ? metaCells[2] : null;
-  final dueIso = dueCell
-      ?.querySelector('[data-date]')
-      ?.attributes['data-date'];
+  final dueIso = dueCell?.querySelector('[data-date]')?.attributes['data-date'];
 
   // Anhänge stehen im Formular "iserv_exercise_attachment" (bei beendeten
   // Aufgaben im selben Panel, bei laufenden im Nachbar-Panel).
@@ -167,23 +168,45 @@ IservTaskDetail parseTaskDetail(String source, {String baseUrl = ''}) {
   );
 }
 
-/// Lädt die Detailseite einer Aufgabe über die IServ-Session.
+/// Lädt die Detailseite einer Aufgabe über die IServ-Session. Ohne
+/// Internet wird die offline gespeicherte Kopie verwendet (falls vorhanden).
 Future<IservTaskDetail> fetchTaskDetail(
   IservSession session,
-  String url,
-) async {
-  final response = await session.get(url);
-  if (response.statusCode != 200) {
-    throw IservException('Aufgabe lieferte HTTP ${response.statusCode}');
+  String url, {
+  IservOfflineStore? offlineStore,
+}) async {
+  final store = offlineStore ?? IservOfflineStore.instance;
+  final id = IservOfflineStore.taskIdOf(url);
+  try {
+    final response = await session.get(url);
+    if (response.statusCode != 200) {
+      throw IservException('Aufgabe lieferte HTTP ${response.statusCode}');
+    }
+    if (id != null) await store.updateDetailHtmlIfKept(id, response.body);
+    return parseTaskDetail(response.body, baseUrl: session.baseUrl);
+  } catch (error) {
+    if (id != null && isNetworkError(error)) {
+      final html = await store.loadDetailHtml(id);
+      if (html != null) {
+        ConnectivityMonitor.instance.reportFailure();
+        return parseTaskDetail(html, baseUrl: session.baseUrl);
+      }
+    }
+    rethrow;
   }
-  return parseTaskDetail(response.body, baseUrl: session.baseUrl);
 }
 
 /// Lädt einen Anhang mit der IServ-Session in den Cache-Ordner.
 Future<File> downloadAttachment(
   IservSession session,
-  IservAttachment attachment,
-) async {
+  IservAttachment attachment, {
+  IservOfflineStore? offlineStore,
+}) async {
+  // Bereits offline gespeichert (laufende Aufgabe): direkt verwenden.
+  final cached = await (offlineStore ?? IservOfflineStore.instance)
+      .cachedAttachment(attachment);
+  if (cached != null) return cached;
+
   final response = await session.get(attachment.downloadUrl);
   if (response.statusCode != 200) {
     throw IservException('Datei lieferte HTTP ${response.statusCode}');

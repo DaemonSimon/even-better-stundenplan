@@ -14,8 +14,10 @@ import '../services/iserv_task_detail.dart';
 
 import '../services/homework_attachments.dart';
 import '../services/app_settings.dart';
+import '../services/connectivity_monitor.dart';
 import '../services/homework_reminders.dart';
 import '../services/iserv_mapping.dart';
+import '../services/iserv_offline_store.dart';
 import '../services/iserv_calendar.dart';
 import '../services/iserv_session.dart';
 import '../services/iserv_tasks.dart';
@@ -47,6 +49,10 @@ class _IservTasksViewState extends State<IservTasksView>
   late final IservSession _session;
   late final IservMappingEngine _mapping = IservMappingEngine();
   late final TempAssignmentStore _store = TempAssignmentStore();
+  final IservTaskCache _taskCache = IservTaskCache();
+
+  /// Zuletzt erfolgreich geladene offene IServ-Aufgaben.
+  List<IservTask> _lastIservTasks = const [];
 
   List<Map<String, dynamic>>? _tasks;
   List<IservTask> _pastTasks = const [];
@@ -67,6 +73,8 @@ class _IservTasksViewState extends State<IservTasksView>
     WidgetsBinding.instance.addObserver(this);
     _session = widget.session ?? IservSession();
     AppSettingsStore.revision.addListener(_onAppSettingsChanged);
+    ConnectivityMonitor.instance.addListener(_onConnectivityChanged);
+    IservSession.logoutRevision.addListener(_onLoggedOut);
     _init();
   }
 
@@ -75,6 +83,8 @@ class _IservTasksViewState extends State<IservTasksView>
     WidgetsBinding.instance.removeObserver(this);
     _cleanupTimer?.cancel();
     AppSettingsStore.revision.removeListener(_onAppSettingsChanged);
+    ConnectivityMonitor.instance.removeListener(_onConnectivityChanged);
+    IservSession.logoutRevision.removeListener(_onLoggedOut);
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -90,29 +100,80 @@ class _IservTasksViewState extends State<IservTasksView>
   Future<void> _init() async {
     await _session.restore();
     await _mapping.restore();
+    await _showCachedTasks();
     await _refresh();
   }
 
-  void _onAppSettingsChanged() {
+  /// Sobald wieder Internet da ist, die gespeicherten Aufgaben auffrischen.
+  void _onConnectivityChanged() {
+    if (mounted && ConnectivityMonitor.instance.isOnline) {
+      unawaited(_refresh());
+    }
+  }
+
+  /// Zeigt die zuletzt geladenen IServ-Aufgaben sofort an, bevor das Netz
+  /// antwortet. Gibt `false` zurück, wenn nichts gespeichert ist.
+  Future<bool> _showCachedTasks() async {
+    final cached = await _taskCache.load();
+    if (cached == null) return false;
+    final List<TempAssignment> tempTasks;
+    try {
+      tempTasks = await _store.load();
+    } catch (_) {
+      return false;
+    }
+    if (!mounted) return false;
+    final merged = mergeTasks(
+      iservTasks: cached.open,
+      tempTasks: tempTasks,
+      engine: _mapping,
+    );
+    setState(() {
+      _iservAuthenticated = true;
+      _tasks = merged;
+      _pastTasks = cached.past;
+      _error = null;
+      _loading = false;
+    });
+    unawaited(_syncReminders(merged));
+    return true;
+  }
+
+  Future<void> _onAppSettingsChanged() async {
     final tasks = _tasks;
     if (tasks != null) unawaited(_syncReminders(tasks));
+    final settings = await AppSettingsStore().load();
+    if (!settings.preloadIservFiles) {
+      // Vorab-Laden aus: gespeicherte Dateien freigeben.
+      await IservOfflineStore.instance.clear();
+    } else if (_iservAuthenticated && _lastIservTasks.isNotEmpty) {
+      unawaited(IservOfflineStore.instance.sync(_session, _lastIservTasks));
+    }
+  }
+
+  /// Abmeldung (z. B. aus den Einstellungen): eigene Session verwerfen
+  /// und neu laden, damit die Anmeldemaske erscheint.
+  Future<void> _onLoggedOut() async {
+    await _session.clear();
+    _lastIservTasks = const [];
+    if (mounted) await _refresh();
   }
 
   Future<void> _syncReminders(List<Map<String, dynamic>> tasks) async {
     try {
       final calendarEvents = await IservCalendarStore().load();
-      await HomeworkReminders.sync(
-        tasks,
-        calendarEvents: calendarEvents,
-      );
+      await HomeworkReminders.sync(tasks, calendarEvents: calendarEvents);
     } catch (error) {
-      debugPrint('Hausaufgabenerinnerungen konnten nicht geplant werden: $error');
+      debugPrint(
+        'Hausaufgabenerinnerungen konnten nicht geplant werden: $error',
+      );
     }
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _loading = true;
+      // Vorhandene (ggf. gespeicherte) Liste stehen lassen.
+      _loading = _tasks == null;
       _error = null;
     });
     try {
@@ -130,6 +191,15 @@ class _IservTasksViewState extends State<IservTasksView>
           pastTasks = await fetchPastTasks(_session);
         } catch (error) {
           debugPrint('Vergangene IServ-Aufgaben nicht ladbar: $error');
+        }
+      }
+      if (authenticated) {
+        ConnectivityMonitor.instance.reportSuccess();
+        await _taskCache.save(open: iservTasks, past: pastTasks);
+        _lastIservTasks = iservTasks;
+        // Anhänge laufender Aufgaben vorab laden, vorbei Aufgaben löschen.
+        if ((await AppSettingsStore().load()).preloadIservFiles) {
+          unawaited(IservOfflineStore.instance.sync(_session, iservTasks));
         }
       }
       final tempTasks = await _store.load();
@@ -150,6 +220,11 @@ class _IservTasksViewState extends State<IservTasksView>
       unawaited(_syncReminders(merged));
     } on IservException catch (exc) {
       if (!mounted) return;
+      if (isNetworkError(exc)) {
+        ConnectivityMonitor.instance.reportFailure();
+        if (await _showCachedTasks()) return;
+      }
+      if (!mounted) return;
       final tempTasks = await _store.load();
       _scheduleCleanup(tempTasks);
       final localTasks = mergeTasks(
@@ -165,6 +240,11 @@ class _IservTasksViewState extends State<IservTasksView>
       });
       unawaited(_syncReminders(localTasks));
     } catch (error) {
+      if (!mounted) return;
+      if (isNetworkError(error)) {
+        ConnectivityMonitor.instance.reportFailure();
+        if (await _showCachedTasks()) return;
+      }
       if (!mounted) return;
       try {
         final tempTasks = await _store.load();
@@ -185,7 +265,8 @@ class _IservTasksViewState extends State<IservTasksView>
         setState(() {
           _iservAuthenticated = false;
           _tasks = const [];
-          _error = 'Lokale Hausaufgaben konnten nicht geladen werden: '
+          _error =
+              'Lokale Hausaufgaben konnten nicht geladen werden: '
               '$storageError';
           _loading = false;
         });
@@ -240,11 +321,6 @@ class _IservTasksViewState extends State<IservTasksView>
     }
   }
 
-  Future<void> _logout() async {
-    await _session.logout();
-    await _refresh();
-  }
-
   Future<void> _editTempAssignment(Map<String, dynamic> task) async {
     final current = TempAssignment(
       id: task['id'] as int,
@@ -261,9 +337,7 @@ class _IservTasksViewState extends State<IservTasksView>
     );
     final result = await showDialog<TempAssignment>(
       context: context,
-      builder: (context) => _TempAssignmentDialog(
-        initial: current,
-      ),
+      builder: (context) => _TempAssignmentDialog(initial: current),
     );
     if (result == null || !mounted) return;
     await _store.update(result);
@@ -326,7 +400,9 @@ class _IservTasksViewState extends State<IservTasksView>
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Status konnte nicht gespeichert werden: $error')),
+        SnackBar(
+          content: Text('Status konnte nicht gespeichert werden: $error'),
+        ),
       );
     }
   }
@@ -347,9 +423,7 @@ class _IservTasksViewState extends State<IservTasksView>
           icon: const Icon(Icons.refresh),
           label: const Text('Erneut versuchen'),
         ),
-        extra: _error!.contains('Redirects')
-            ? _buildRequestLog(context)
-            : null,
+        extra: _error!.contains('Redirects') ? _buildRequestLog(context) : null,
       );
     }
     if (!_iservAuthenticated && _showLoginForm) {
@@ -554,16 +628,6 @@ class _IservTasksViewState extends State<IservTasksView>
                               ),
                       ),
                 ],
-                if (_iservAuthenticated) ...[
-                  const SizedBox(height: 16),
-                  Center(
-                    child: TextButton.icon(
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout, size: 18),
-                      label: const Text('Von IServ abmelden'),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -701,8 +765,7 @@ class _CalendarTaskEntry extends StatelessWidget {
     final allDay =
         event.start.hour == 0 &&
         event.start.minute == 0 &&
-        (event.end == null ||
-            event.end!.difference(event.start).inHours >= 23);
+        (event.end == null || event.end!.difference(event.start).inHours >= 23);
     final day = DateFormat('EEE, dd.MM.', 'de_DE').format(event.start);
     final time = allDay
         ? 'ganztägig'
@@ -731,7 +794,10 @@ class _CalendarTaskEntry extends StatelessWidget {
               runSpacing: 2,
               children: [
                 if (event.isExam)
-                  _MetaRow(icon: Icons.assignment_late_outlined, text: 'Klausur'),
+                  _MetaRow(
+                    icon: Icons.assignment_late_outlined,
+                    text: 'Klausur',
+                  ),
                 _MetaRow(icon: Icons.event, text: '$day · $time'),
               ],
             ),
@@ -767,7 +833,9 @@ class _PastTaskEntry extends StatelessWidget {
           ),
         ),
         subtitle: Text('Abgabe: ${_formatDueDate(task.dueDate)}'),
-        trailing: onTap == null ? null : const Icon(Icons.open_in_new, size: 18),
+        trailing: onTap == null
+            ? null
+            : const Icon(Icons.open_in_new, size: 18),
         onTap: onTap,
       ),
     );
@@ -818,8 +886,9 @@ class _TaskCard extends StatelessWidget {
                     child: Text(
                       task['title'] as String,
                       style: theme.textTheme.titleSmall?.copyWith(
-                        decoration:
-                            completed ? TextDecoration.lineThrough : null,
+                        decoration: completed
+                            ? TextDecoration.lineThrough
+                            : null,
                       ),
                     ),
                   ),
@@ -858,9 +927,7 @@ class _TaskCard extends StatelessWidget {
                 children: [
                   if (isTemp) ...[
                     if ((task['subject'] as String).isNotEmpty)
-                      _SubjectMetaRow(
-                        subject: task['subject'] as String,
-                      ),
+                      _SubjectMetaRow(subject: task['subject'] as String),
                     if (hour != null)
                       _MetaRow(
                         icon: Icons.school_outlined,
@@ -906,7 +973,8 @@ class _TaskCard extends StatelessWidget {
                     itemCount: (task['image_paths'] as List).length,
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final path = (task['image_paths'] as List)[index] as String;
+                      final path =
+                          (task['image_paths'] as List)[index] as String;
                       return GestureDetector(
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -1044,9 +1112,7 @@ class _TempAssignmentDialogState extends State<_TempAssignmentDialog> {
   late final _description = TextEditingController(
     text: widget.initial.description,
   );
-  late final _existingImages = List<String>.of(
-    widget.initial.imagePaths,
-  );
+  late final _existingImages = List<String>.of(widget.initial.imagePaths);
   final List<XFile> _newImages = [];
   bool _pickingImages = false;
   bool _saving = false;
@@ -1076,7 +1142,9 @@ class _TempAssignmentDialogState extends State<_TempAssignmentDialog> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fotos konnten nicht geöffnet werden: $error')),
+          SnackBar(
+            content: Text('Fotos konnten nicht geöffnet werden: $error'),
+          ),
         );
       }
     } finally {
@@ -1103,7 +1171,9 @@ class _TempAssignmentDialogState extends State<_TempAssignmentDialog> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fotos konnten nicht gespeichert werden: $error')),
+          SnackBar(
+            content: Text('Fotos konnten nicht gespeichert werden: $error'),
+          ),
         );
       }
     }
@@ -1112,9 +1182,7 @@ class _TempAssignmentDialogState extends State<_TempAssignmentDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(
-        'Hausaufgabe bearbeiten',
-      ),
+      title: Text('Hausaufgabe bearbeiten'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1156,12 +1224,14 @@ class _TempAssignmentDialogState extends State<_TempAssignmentDialog> {
                   for (var index = 0; index < _existingImages.length; index++)
                     _AttachmentPreview(
                       path: _existingImages[index],
-                      onRemove: () => setState(() => _existingImages.removeAt(index)),
+                      onRemove: () =>
+                          setState(() => _existingImages.removeAt(index)),
                     ),
                   for (var index = 0; index < _newImages.length; index++)
                     _AttachmentPreview(
                       path: _newImages[index].path,
-                      onRemove: () => setState(() => _newImages.removeAt(index)),
+                      onRemove: () =>
+                          setState(() => _newImages.removeAt(index)),
                     ),
                 ],
               ),
@@ -1181,7 +1251,6 @@ class _TempAssignmentDialogState extends State<_TempAssignmentDialog> {
       ],
     );
   }
-
 }
 
 String _formatDueDate(String? value) {
@@ -1192,11 +1261,7 @@ String _formatDueDate(String? value) {
 }
 
 String _formatLessonPeriods(String value) {
-  final periods = value
-      .split('+')
-      .map(int.tryParse)
-      .whereType<int>()
-      .toList();
+  final periods = value.split('+').map(int.tryParse).whereType<int>().toList();
   if (periods.isEmpty) return '$value. Stunde';
   return periods.length == 1
       ? '${periods.single}. Stunde'

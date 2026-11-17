@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,6 +42,13 @@ class IservSession {
   final String baseUrl;
 
   final Map<String, String> _cookies = {};
+
+  /// Wird erhöht, wenn sich jemand (z. B. in den Einstellungen) von IServ
+  /// abmeldet, damit offene Ansichten ihre Session ebenfalls verwerfen.
+  static final ValueNotifier<int> logoutRevision = ValueNotifier(0);
+
+  /// Sind Anmelde-Cookies vorhanden (nach [restore])?
+  bool get hasCookies => _cookies.isNotEmpty;
 
   /// Debug-Log der letzten HTTP-Hops (für Fehleranzeige in der App).
   final List<String> requestLog = [];
@@ -90,9 +98,8 @@ class IservSession {
     } catch (_) {}
   }
 
-  String _cookieHeader() => _cookies.entries
-      .map((e) => '${e.key}=${e.value}')
-      .join('; ');
+  String _cookieHeader() =>
+      _cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
 
   Uri _resolve(String path) =>
       path.startsWith('/') ? Uri.parse('$baseUrl$path') : Uri.parse(path);
@@ -123,8 +130,7 @@ class IservSession {
         request.headers['cookie'] = _cookieHeader();
       }
       if (requestForm != null) {
-        request.headers['content-type'] =
-            'application/x-www-form-urlencoded';
+        request.headers['content-type'] = 'application/x-www-form-urlencoded';
         request.body = requestForm.entries
             .map(
               (e) =>
@@ -242,9 +248,7 @@ class IservSession {
       final name = block.substring(0, eq).trim();
       if (_cookieAttributes.contains(name.toLowerCase())) continue;
       var value = block.substring(eq + 1).split(';').first.trim();
-      if (value.length >= 2 &&
-          value.startsWith('"') &&
-          value.endsWith('"')) {
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
         value = value.substring(1, value.length - 1);
       }
       if (value.isEmpty) continue;
@@ -314,8 +318,7 @@ class IservSession {
   Future<bool> isAuthenticated() async {
     try {
       final response = await _request('GET', _resolve('/'));
-      final ok = response.statusCode == 200 &&
-          !_hasLoginForm(response.body);
+      final ok = response.statusCode == 200 && !_hasLoginForm(response.body);
       return ok;
     } on IservException {
       rethrow;
@@ -326,9 +329,7 @@ class IservSession {
 
   Future<bool> login(String username, String password) async {
     if (username.trim().isEmpty || password.isEmpty) {
-      throw const IservLoginException(
-        'Benutzername und Passwort erforderlich',
-      );
+      throw const IservLoginException('Benutzername und Passwort erforderlich');
     }
 
     final http.Response page;
@@ -338,9 +339,7 @@ class IservSession {
       throw IservException('Login-Seite nicht erreichbar: $exc');
     }
     if (page.statusCode >= 400) {
-      throw IservException(
-        'Login-Seite lieferte HTTP ${page.statusCode}',
-      );
+      throw IservException('Login-Seite lieferte HTTP ${page.statusCode}');
     }
 
     final doc = html.parse(page.body);
@@ -415,8 +414,7 @@ class IservSession {
     await clear();
   }
 
-  Future<http.Response> get(String path) =>
-      _request('GET', _resolve(path));
+  Future<http.Response> get(String path) => _request('GET', _resolve(path));
 
   /// Sammelt alle absoluten Modul-Links der Dashboard-Seite (für
   /// Modul-Suche und Debug-Ausgaben). Leer, wenn die Navigation per JS
@@ -463,8 +461,9 @@ class IservSession {
     matches.sort((a, b) {
       bool exact(String url) {
         final path = Uri.parse(url).path.toLowerCase();
-        return keywords.any((k) =>
-            path.endsWith('/$k') || path.endsWith('/$k/'));
+        return keywords.any(
+          (k) => path.endsWith('/$k') || path.endsWith('/$k/'),
+        );
       }
 
       final ea = exact(a) ? 0 : 1;

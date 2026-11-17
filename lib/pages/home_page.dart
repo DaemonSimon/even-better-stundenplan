@@ -11,6 +11,7 @@ import '../components/stundenplan_widget.dart';
 import '../providers/date_utilities.dart';
 import '../providers/teacher_directory_provider.dart';
 import '../services/app_settings.dart';
+import '../services/connectivity_monitor.dart';
 import '../services/group_preference.dart';
 import '../services/iserv_calendar.dart';
 import '../services/iserv_session.dart';
@@ -97,6 +98,7 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
     _selectedDayIndex = _todayIndex;
     _group = widget.initialGroup;
     _repository = StundenplanRepository(sessionManager: widget.sessionManager);
+    ConnectivityMonitor.instance.addListener(_onConnectivityChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => checkAuth());
     _loadGroup();
     unawaited(_loadCalendarSettings());
@@ -105,6 +107,7 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ConnectivityMonitor.instance.removeListener(_onConnectivityChanged);
     _repository.dispose();
     super.dispose();
   }
@@ -115,7 +118,19 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_refreshOnResume());
   }
 
+  /// Offline-Hinweis aktualisieren; sobald wieder Internet da ist, den
+  /// Kalender nachziehen (der Stundenplan lädt sich selbst neu).
+  void _onConnectivityChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (ConnectivityMonitor.instance.isOnline &&
+        _appSettings.syncIservCalendar) {
+      unawaited(_syncCalendar());
+    }
+  }
+
   Future<void> _refreshOnResume() async {
+    unawaited(ConnectivityMonitor.instance.checkNow());
     await widget.sessionManager.checkAuthentication();
     if (!widget.sessionManager.isLoggedIn) {
       await widget.sessionManager.tryReAuthenticate();
@@ -155,6 +170,7 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _calendarSession.restore();
       final events = await fetchIservCalendar(_calendarSession);
       await _calendarStore.save(events);
+      ConnectivityMonitor.instance.reportSuccess();
       if (!mounted) return;
       setState(() {
         _calendarEvents = events;
@@ -162,6 +178,7 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
       });
       unawaited(HomeworkReminders.syncCalendarEvents(events));
     } catch (error) {
+      if (isNetworkError(error)) ConnectivityMonitor.instance.reportFailure();
       if (!mounted) return;
       setState(() {
         _calendarError = error.toString();
@@ -322,8 +339,8 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
     final friday = getNthDayOfWeek(monday, 5);
     final dateSpan =
         '${DateFormat('dd.MM.').format(monday)} – ${DateFormat('dd.MM.yyyy').format(friday)}';
-    final showCalendar = _viewMode == TimetableViewMode.daily &&
-        _appSettings.syncIservCalendar;
+    final showCalendar =
+        _viewMode == TimetableViewMode.daily && _appSettings.syncIservCalendar;
 
     return Scaffold(
       bottomNavigationBar: BottomAppBar(
@@ -399,7 +416,10 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
               onPickWeek: () => _chooseWeek(context),
               onGoToToday: _goToToday,
             ),
-          if (_calendarError != null && showCalendar)
+          if (!ConnectivityMonitor.instance.isOnline) const _OfflineBanner(),
+          if (_calendarError != null &&
+              showCalendar &&
+              ConnectivityMonitor.instance.isOnline)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: Text(
@@ -445,6 +465,41 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Hinweis, dass gerade gespeicherte Daten angezeigt werden.
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      child: Material(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.cloud_off, size: 18, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Offline – gespeicherter Stand. '
+                  'Wird automatisch aktualisiert, sobald du wieder Internet hast.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

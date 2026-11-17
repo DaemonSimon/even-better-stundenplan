@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:html/parser.dart' as html;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'iserv_session.dart';
 
@@ -20,10 +23,76 @@ class IservTask {
   final String description;
   final List<String> links;
 
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'subject': subject,
+    'teacher': teacher,
+    'dueDate': dueDate,
+    'description': description,
+    'links': links,
+  };
+
+  factory IservTask.fromJson(Map<String, dynamic> json) => IservTask(
+    title: json['title'] as String? ?? '',
+    subject: json['subject'] as String? ?? '',
+    teacher: json['teacher'] as String? ?? '',
+    dueDate: json['dueDate'] as String?,
+    description: json['description'] as String? ?? '',
+    links: [
+      for (final link in json['links'] as List? ?? const [])
+        if (link is String) link,
+    ],
+  );
+
   /// Stabile Identität für Mapping-Overrides und De-Duplikation.
   String get key {
     final raw = '$title|$subject|${dueDate ?? ''}';
     return 'iserv:${raw.hashCode.toRadixString(16)}';
+  }
+}
+
+/// Zuletzt erfolgreich geladene IServ-Aufgaben, damit sie auch ohne
+/// Internet angezeigt werden können.
+class IservTaskCache {
+  static const String _prefsKey = 'iserv_tasks_cache';
+
+  Future<({List<IservTask> open, List<IservTask> past})?> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return null;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      List<IservTask> parse(Object? list) => [
+        for (final item in list as List? ?? const [])
+          if (item is Map<String, dynamic>) IservTask.fromJson(item),
+      ];
+      return (open: parse(data['open']), past: parse(data['past']));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> save({
+    required List<IservTask> open,
+    required List<IservTask> past,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _prefsKey,
+        jsonEncode({
+          'open': [for (final t in open) t.toJson()],
+          'past': [for (final t in past) t.toJson()],
+        }),
+      );
+    } catch (_) {
+      // Cache ist optional.
+    }
+  }
+
+  Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsKey);
   }
 }
 
@@ -37,11 +106,35 @@ const _taskSelectors = [
   '.task',
 ];
 
-const _titleSelectors = ['.task-name', '.task-title', 'h3', 'h4', '.title', 'strong'];
-const _subjectSelectors = ['.task-subject', '.subject', '.badge', '.tag', '.subject-name'];
-const _teacherSelectors = ['.task-teacher', '.teacher', '.author', '.task-author'];
+const _titleSelectors = [
+  '.task-name',
+  '.task-title',
+  'h3',
+  'h4',
+  '.title',
+  'strong',
+];
+const _subjectSelectors = [
+  '.task-subject',
+  '.subject',
+  '.badge',
+  '.tag',
+  '.subject-name',
+];
+const _teacherSelectors = [
+  '.task-teacher',
+  '.teacher',
+  '.author',
+  '.task-author',
+];
 const _dueSelectors = ['.task-due', '.due-date', '.due', '.date', 'time'];
-const _descriptionSelectors = ['.task-description', '.task-text', '.description', '.text', 'p'];
+const _descriptionSelectors = [
+  '.task-description',
+  '.task-text',
+  '.description',
+  '.text',
+  'p',
+];
 
 final _dateDeRe = RegExp(r'(\d{1,2})\.(\d{1,2})\.(\d{2,4})');
 final _dateIsoRe = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})');
@@ -84,17 +177,19 @@ String? parseDueDate(String raw) {
   }
 
   // Datums-Fragmente entfernen, damit "17.08" nicht als Uhrzeit gilt.
-  final stripped = text
-      .replaceAll(_dateDeRe, ' ')
-      .replaceAll(_dateIsoRe, ' ');
+  final stripped = text.replaceAll(_dateDeRe, ' ').replaceAll(_dateIsoRe, ' ');
   final t = _timeRe.firstMatch(stripped);
   if (t != null) {
     final hour = int.parse(t.group(1)!);
     final minute = int.parse(t.group(2)!);
     if (hour < 24 && minute < 60) {
-      return DateTime(day.year, day.month, day.day, hour, minute)
-          .toIso8601String()
-          .substring(0, 16);
+      return DateTime(
+        day.year,
+        day.month,
+        day.day,
+        hour,
+        minute,
+      ).toIso8601String().substring(0, 16);
     }
   }
   return day.toIso8601String().substring(0, 10);
@@ -149,15 +244,17 @@ List<IservTask>? _parseCrudTable(dynamic doc, String baseUrl) {
     final cells = row.querySelectorAll('td');
     if (titleCol >= cells.length) continue;
     final titleCell = cells[titleCol];
-    final title = (titleCell.text as String)
-        .trim()
-        .replaceAll(RegExp(r'\s+'), ' ');
+    final title = (titleCell.text as String).trim().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
     if (title.isEmpty) continue;
 
     String? due;
     if (dueCol >= 0 && dueCol < cells.length) {
       final dueCell = cells[dueCol];
-      final raw = dueCell.querySelector('[data-date]')?.attributes['data-date'] ??
+      final raw =
+          dueCell.querySelector('[data-date]')?.attributes['data-date'] ??
           dueCell.querySelector('li')?.text ??
           dueCell.text;
       due = parseDueDate((raw as String).trim());
@@ -204,7 +301,8 @@ List<IservTask> parseTasksPage(String htmlText, {String baseUrl = ''}) {
     if (due == null) {
       final timeNode = block.querySelector('time');
       if (timeNode != null) {
-        due = timeNode.attributes['datetime'] ??
+        due =
+            timeNode.attributes['datetime'] ??
             timeNode.text.trim().replaceAll(RegExp(r'\s+'), ' ');
       }
     }
@@ -248,9 +346,14 @@ Future<List<IservTask>> fetchPastTasks(IservSession session) async {
 /// der Dashboard-Seite, falls keiner der Kandidaten existiert.
 Future<List<IservTask>> fetchTasks(IservSession session) async {
   final candidates = <String>[..._tasksPathCandidates];
-  final discovered = await session.discoverModulePath(
-    ['task', 'aufgabe', 'homework', 'exercise', 'uebung', 'übung'],
-  );
+  final discovered = await session.discoverModulePath([
+    'task',
+    'aufgabe',
+    'homework',
+    'exercise',
+    'uebung',
+    'übung',
+  ]);
   if (discovered != null && !candidates.contains(discovered)) {
     candidates.add(discovered);
   }
