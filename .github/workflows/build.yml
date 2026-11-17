@@ -93,10 +93,15 @@ jobs:
     - name: Rename artifacts
       run: |
         cd artifacts
+        # upload-artifact behält Unterordner (flutter-apk/, bundle/release/) bei
+        find . -mindepth 2 -type f -exec mv {} . \;
+        find . -mindepth 1 -type d -empty -delete
         for f in app-arm64-v8a-release.apk app-armeabi-v7a-release.apk app-x86_64-release.apk; do
           [ -f "$f" ] && mv "$f" "better_stundenplan-${{ env.VERSION }}-${f#app-}"
         done
         [ -f app-release.aab ] && mv app-release.aab "better_stundenplan-${{ env.VERSION }}.aab"
+        # Prüfsummen passend zu den neuen Dateinamen
+        sha256sum *.apk > SHA256SUMS.txt
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
