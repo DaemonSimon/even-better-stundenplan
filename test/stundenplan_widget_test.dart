@@ -1027,7 +1027,7 @@ void main() {
   });
 
   testWidgets(
-    'now line hides during the Mittagspause, countdown pill appears',
+    'now line hides during the Mittagspause, no countdown pill',
     (tester) async {
       // Tag MIT Nachmittagsunterricht (8. Stunde): Mittagspause sichtbar.
       final repository = fixtureRepository(
@@ -1043,20 +1043,20 @@ void main() {
       expect(find.byKey(const Key('now-line')), findsOneWidget);
       expect(find.textContaining('Endet in'), findsNothing);
 
-      // Während der Mittagspause: Linie weg, Countdown zeigt Restzeit.
+      // Während der Mittagspause: Linie weg, kein Countdown-Pill mehr.
       await tester.pumpWidget(
         buildTestWidget(repository, clock: () => DateTime(2026, 8, 14, 13, 25)),
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('now-line')), findsNothing);
-      expect(find.text('Endet in 20m'), findsOneWidget);
+      expect(find.textContaining('Endet in'), findsNothing);
 
       await tester.pumpWidget(
         buildTestWidget(repository, clock: () => DateTime(2026, 8, 14, 13, 40)),
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('now-line')), findsNothing);
-      expect(find.text('Endet in 5m'), findsOneWidget);
+      expect(find.textContaining('Endet in'), findsNothing);
 
       // Nach der Pause läuft die 8. Stunde (14:30):
       // Linie wieder da, Countdown verschwunden.
