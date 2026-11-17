@@ -127,68 +127,75 @@ class _DetailsPageState extends State<DetailsPage> {
         backgroundColor: Theme.of(context).colorScheme.surface,
         title: const Text("Details"),
       ),
-      body: Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-        child: Column(
-          children: [
-            Column(
-              children: [
-                _buildFieldRow(
-                  icon: Icons.book,
-                  label: 'Fach',
-                  controller: _fachController,
-                  isEditing: _editingFach,
-                  iconColor: SubjectColors.forSubject(widget.lesson),
-                  onToggle: () => _toggleEdit(
-                    'fach',
-                    _editingFach,
-                    _fachController,
-                    widget.lesson,
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            // entspricht margin 16 + padding 24/32
+            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
+            sliver: SliverFillRemaining(
+              hasScrollBody: false,
+              child: Column(
+                children: [
+                  Column(
+                    children: [
+                      _buildFieldRow(
+                        icon: Icons.book,
+                        label: 'Fach',
+                        controller: _fachController,
+                        isEditing: _editingFach,
+                        iconColor: SubjectColors.forSubject(widget.lesson),
+                        onToggle: () => _toggleEdit(
+                          'fach',
+                          _editingFach,
+                          _fachController,
+                          widget.lesson,
+                        ),
+                      ),
+                      _buildFieldRow(
+                        icon: Icons.person,
+                        label: 'Lehrkraft',
+                        controller: _lehrerController,
+                        isEditing: _editingLehrer,
+                        onToggle: () => _toggleEdit(
+                          'lehrer',
+                          _editingLehrer,
+                          _lehrerController,
+                          widget.teacher,
+                        ),
+                      ),
+                      _buildFieldRow(
+                        icon: Icons.meeting_room,
+                        label: 'Raum',
+                        controller: _raumController,
+                        isEditing: _editingRaum,
+                        onToggle: () => _toggleEdit(
+                          'raum',
+                          _editingRaum,
+                          _raumController,
+                          widget.room,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                _buildFieldRow(
-                  icon: Icons.person,
-                  label: 'Lehrkraft',
-                  controller: _lehrerController,
-                  isEditing: _editingLehrer,
-                  onToggle: () => _toggleEdit(
-                    'lehrer',
-                    _editingLehrer,
-                    _lehrerController,
-                    widget.teacher,
+                  const Spacer(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("${widget.hour}. Stunde - ${widget.date}"),
+                      IconButton(
+                        tooltip: 'Stunde kopieren',
+                        icon: const Icon(Icons.copy),
+                        onPressed: () => _copyToClipboard(
+                          '${widget.hour}. Stunde - ${widget.date}',
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                _buildFieldRow(
-                  icon: Icons.meeting_room,
-                  label: 'Raum',
-                  controller: _raumController,
-                  isEditing: _editingRaum,
-                  onToggle: () => _toggleEdit(
-                    'raum',
-                    _editingRaum,
-                    _raumController,
-                    widget.room,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const Spacer(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("${widget.hour}. Stunde - ${widget.date}"),
-                IconButton(
-                  tooltip: 'Stunde kopieren',
-                  icon: const Icon(Icons.copy),
-                  onPressed: () => _copyToClipboard(
-                    '${widget.hour}. Stunde - ${widget.date}',
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

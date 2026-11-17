@@ -128,10 +128,7 @@ class _LessonDetailSheet extends StatelessWidget {
     Navigator.of(context).pop();
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CalendarDayPage(
-          day: day.date,
-          events: calendarEvents,
-        ),
+        builder: (_) => CalendarDayPage(day: day.date, events: calendarEvents),
       ),
     );
   }
@@ -165,46 +162,45 @@ class _LessonDetailSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: hasSubject
-                      ? SubjectNameLabel(
-                          raw: lesson.lesson,
-                          stripGroup: stripGroup,
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(
-                          '—',
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: hasSubject
+                    ? SubjectNameLabel(
+                        raw: lesson.lesson,
+                        stripGroup: stripGroup,
+                        maxLines: 1,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
+                      )
+                    : Text(
+                        '—',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  _periodLabel,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      _periodLabel,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$dayName · $_timeText',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cardGrey,
-                      ),
-                    ),
-                  ],
+                Text(
+                  '$dayName · $_timeText',
+                  style: theme.textTheme.bodySmall?.copyWith(color: cardGrey),
                 ),
               ],
             ),
