@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:intl/intl.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -98,6 +99,43 @@ class HomeworkReminders {
     return reminder;
   }
 
+  /// Klausuren: Erinnerung am Vorabend um 18:00 (null, wenn schon vorbei).
+  static DateTime? examReminderAt(IservCalendarEvent event, {DateTime? now}) {
+    final dayBefore = DateTime(
+      event.start.year,
+      event.start.month,
+      event.start.day,
+    ).subtract(const Duration(days: 1));
+    final reminder = DateTime(
+      dayBefore.year,
+      dayBefore.month,
+      dayBefore.day,
+      18,
+    );
+    return reminder.isAfter(now ?? DateTime.now()) ? reminder : null;
+  }
+
+  /// Erinnerungen für Klausuren – unabhängig vom Schalter
+  /// "Kalendertermine", solange Erinnerungen und Kalender-Sync an sind.
+  static List<({int id, DateTime at, String heading, String title, String key})>
+  _examCandidates(List<IservCalendarEvent> events, AppSettings settings) {
+    if (!settings.homeworkRemindersEnabled || !settings.syncIservCalendar) {
+      return const [];
+    }
+    return [
+      for (final event in events)
+        if (event.isExam && examReminderAt(event) != null)
+          (
+            id: _notificationId('calendar:exam:${event.id}'),
+            at: examReminderAt(event)!,
+            heading: 'Klausur morgen',
+            title:
+                '${DateFormat('HH:mm').format(event.start)} ${event.title.trim()}',
+            key: 'calendar:exam:${event.id}',
+          ),
+    ];
+  }
+
   static Future<bool> requestPermissions() async {
     if (!Platform.isAndroid && !Platform.isIOS) return true;
     await _initialize();
@@ -146,10 +184,12 @@ class HomeworkReminders {
       ));
       }
     }
+    candidates.addAll(_examCandidates(calendarEvents, settings));
     if (settings.remindAboutCalendar && settings.syncIservCalendar) {
       for (final event in calendarEvents) {
         final title = event.title.trim();
-        if (title.isEmpty) continue;
+        // Klausuren haben ihre eigene Vorabend-Erinnerung.
+        if (title.isEmpty || event.isExam) continue;
         final at = calendarReminderAt(event, settings);
         if (at == null) continue;
         final key = 'calendar:${event.id}';
@@ -201,7 +241,6 @@ class HomeworkReminders {
     if (!settings.remindAboutHomework) {
       await _cancelReminderNotifications(homeworkOnly: true);
     }
-    if (!settings.remindAboutCalendar || !settings.syncIservCalendar) return;
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
         'homework_reminders',
@@ -212,25 +251,29 @@ class HomeworkReminders {
       ),
       iOS: DarwinNotificationDetails(),
     );
-    final candidates = <({int id, DateTime at, String title, String key})>[];
-    for (final event in events) {
-      final title = event.title.trim();
-      if (title.isEmpty) continue;
-      final at = calendarReminderAt(event, settings);
-      if (at == null) continue;
-      final key = 'calendar:${event.id}';
-      candidates.add((
-        id: _notificationId(key),
-        at: at,
-        title: title,
-        key: key,
-      ));
+    final candidates = _examCandidates(events, settings).toList();
+    if (settings.remindAboutCalendar && settings.syncIservCalendar) {
+      for (final event in events) {
+        final title = event.title.trim();
+        // Klausuren haben ihre eigene Vorabend-Erinnerung.
+        if (title.isEmpty || event.isExam) continue;
+        final at = calendarReminderAt(event, settings);
+        if (at == null) continue;
+        final key = 'calendar:${event.id}';
+        candidates.add((
+          id: _notificationId(key),
+          at: at,
+          heading: 'Kalender',
+          title: title,
+          key: key,
+        ));
+      }
     }
     candidates.sort((a, b) => a.at.compareTo(b.at));
     for (final reminder in candidates.take(100)) {
       await _plugin.zonedSchedule(
         reminder.id,
-        'Kalender',
+        reminder.heading,
         reminder.title,
         tz.TZDateTime.from(reminder.at, tz.local),
         details,

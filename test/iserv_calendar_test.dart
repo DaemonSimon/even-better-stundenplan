@@ -9,6 +9,66 @@ import 'package:better_stundenplan/services/iserv_calendar.dart';
 import 'package:better_stundenplan/services/iserv_session.dart';
 
 void main() {
+  group('Klausuren', () {
+    test('erkennt Klausuren an Titel oder Kalendername', () {
+      final byTitle = IservCalendarEvent(
+        id: 'a',
+        title: 'Klausur Deutsch (Klausur) - ITA26-1',
+        start: DateTime(2026, 11, 23, 8, 10),
+      );
+      final byCalendar = IservCalendarEvent(
+        id: 'b',
+        title: 'Deutsch',
+        start: DateTime(2026, 11, 23, 8, 10),
+        calendar: 'Klausurplan',
+      );
+      final other = IservCalendarEvent(
+        id: 'c',
+        title: 'Elternabend',
+        start: DateTime(2026, 11, 23, 18),
+        calendar: 'Öffentlich',
+      );
+
+      expect(byTitle.isExam, isTrue);
+      expect(byCalendar.isExam, isTrue);
+      expect(other.isExam, isFalse);
+    });
+
+    test('Kalendername übersteht Speichern und Laden', () {
+      final event = IservCalendarEvent(
+        id: 'a',
+        title: 'Deutsch',
+        start: DateTime(2026, 11, 23, 8, 10),
+        calendar: 'Klausurplan',
+      );
+
+      final restored = IservCalendarEvent.fromJson(event.toJson());
+
+      expect(restored.calendar, 'Klausurplan');
+      expect(restored.isExam, isTrue);
+    });
+
+    test('Feed-Einträge bekommen den Namen der Kalenderquelle', () {
+      final events = parseIservCalendarJson(
+        [
+          {
+            'id': '1',
+            'title': 'Deutsch',
+            'start': '2026-11-23T08:10:00+01:00',
+            'end': '2026-11-23T09:40:00+01:00',
+            'description': 'Erörterung',
+          },
+        ],
+        idPrefix: 'exams',
+        calendar: 'Klausurplan',
+      );
+
+      expect(events.single.calendar, 'Klausurplan');
+      expect(events.single.description, 'Erörterung');
+      expect(events.single.isExam, isTrue);
+    });
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {

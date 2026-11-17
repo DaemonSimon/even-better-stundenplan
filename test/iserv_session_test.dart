@@ -313,6 +313,67 @@ void main() {
     });
   });
 
+  test('isIservUrl: nur Links auf das eigene IServ bleiben in der App', () {
+    final session = _session(MockClient((_) async => http.Response('', 200)));
+
+    expect(
+      session.isIservUrl('https://schule.example.de/iserv/exercise/show/1'),
+      isTrue,
+    );
+    expect(session.isIservUrl('https://fremd.example.com/x'), isFalse);
+    expect(session.isIservUrl('http://schule.example.de/iserv/'), isFalse);
+  });
+
+  group('Cookie-Scope', () {
+    test('schickt Session-Cookies nicht an fremde Redirect-Hosts', () async {
+      final foreignCookies = <String?>[];
+      final session = _session(MockClient((request) async {
+        if (request.url.host == 'schule.example.de') {
+          if (request.url.path.endsWith('/start')) {
+            return http.Response(
+              '',
+              302,
+              headers: {
+                'location': '/iserv/weiter',
+                'set-cookie': 'IServSession=geheim; Path=/',
+              },
+            );
+          }
+          if (request.url.path.endsWith('/weiter')) {
+            expect(request.headers['cookie'], contains('IServSession=geheim'));
+            return http.Response(
+              '',
+              302,
+              headers: {'location': 'https://fremd.example.com/x'},
+            );
+          }
+          if (request.url.path.endsWith('/danach')) {
+            // Cookie vom fremden Host wurde nicht übernommen.
+            expect(request.headers['cookie'], isNot(contains('Tracker')));
+            return http.Response('ok', 200, request: request);
+          }
+        }
+        if (request.url.host == 'fremd.example.com') {
+          foreignCookies.add(request.headers['cookie']);
+          return http.Response(
+            '',
+            302,
+            headers: {
+              'location': 'https://schule.example.de/iserv/danach',
+              'set-cookie': 'Tracker=boese; Path=/',
+            },
+          );
+        }
+        return http.Response('not found', 404);
+      }));
+
+      final response = await session.get('/start');
+
+      expect(response.statusCode, 200);
+      expect(foreignCookies, [null]);
+    });
+  });
+
   group('Meta-Refresh-Weiterleitung', () {
     test('folgt einer Meta-Refresh-Seite mit OIDC-code', () async {
       final session = _session(MockClient((request) async {
@@ -322,7 +383,7 @@ void main() {
           return http.Response(
             '''
             <html><head>
-            <meta http-equiv="refresh" content="0;url=https://bbs-papenburg.eu/iserv/app/authentication/redirect?state=abc&amp;code=xyz%3Aabc">
+            <meta http-equiv="refresh" content="0;url=https://schule.example.de/iserv/app/authentication/redirect?state=abc&amp;code=xyz%3Aabc">
             </head></html>''',
             200,
             headers: {'content-type': 'text/html; charset=utf-8'},

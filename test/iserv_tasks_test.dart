@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,8 @@ import 'package:better_stundenplan/services/iserv_session.dart';
 import 'package:better_stundenplan/services/iserv_tasks.dart';
 
 String _fixtureHtml() => File('test/fixtures/aufgaben_page.html').readAsStringSync();
+
+List<int> utf8Bytes(String text) => utf8.encode(text);
 
 void main() {
   group('fetchTasks', () {
@@ -102,6 +105,89 @@ void main() {
 
     test('leeres HTML liefert keine Aufgaben', () {
       expect(parseTasksPage('<html><body><p>keine</p></body></html>'), isEmpty);
+    });
+  });
+
+  group('parseTasksPage (echte IServ-Tabelle)', () {
+    final tableHtml = File(
+      'test/fixtures/iserv_exercise_table.html',
+    ).readAsStringSync();
+
+    test('liest Titel, Abgabetermin, Tags und Link aus #crud-table', () {
+      final tasks = parseTasksPage(
+        tableHtml,
+        baseUrl: 'https://schule.example.de/iserv',
+      );
+
+      expect(tasks, hasLength(2));
+      expect(tasks[0].title, 'Projekt Netzteil');
+      expect(tasks[0].dueDate, '2026-12-15T15:00');
+      expect(tasks[0].subject, ''); // Tags "keine"
+      expect(tasks[0].links, [
+        'https://schule.example.de/iserv/exercise/show/101',
+      ]);
+
+      // Ohne data-date: Termin aus dem Listentext.
+      expect(tasks[1].title, 'Referat Energiewende');
+      expect(tasks[1].dueDate, '2026-12-01T08:00');
+      expect(tasks[1].subject, 'Politik');
+      expect(tasks[1].links.single, endsWith('/iserv/exercise/show/102'));
+    });
+
+    test('leere Tabelle bedeutet keine Aufgaben', () {
+      final empty = tableHtml.replaceAll(
+        RegExp(r'<tbody>.*</tbody>', dotAll: true),
+        '<tbody></tbody>',
+      );
+
+      expect(parseTasksPage(empty), isEmpty);
+    });
+
+    test('fetchPastTasks liest /exercise/past/exercise', () async {
+      final session = IservSession(
+        client: MockClient((request) async {
+          if (request.url.path == '/iserv/exercise/past/exercise') {
+            return http.Response.bytes(
+              utf8Bytes(tableHtml),
+              200,
+              headers: {'content-type': 'text/html; charset=utf-8'},
+            );
+          }
+          return http.Response('not found', 404);
+        }),
+        baseUrl: 'https://schule.example.de/iserv',
+      );
+
+      final tasks = await fetchPastTasks(session);
+
+      expect(tasks, hasLength(2));
+      expect(tasks.first.title, 'Projekt Netzteil');
+    });
+
+    test('fetchTasks liest die Tabelle von /exercise/enter', () async {
+      final session = IservSession(
+        client: MockClient((request) async {
+          if (request.url.path == '/iserv/exercise/enter') {
+            return http.Response.bytes(
+              utf8Bytes(tableHtml),
+              200,
+              headers: {'content-type': 'text/html; charset=utf-8'},
+            );
+          }
+          if (request.url.path == '/iserv/') {
+            return http.Response('<html><body></body></html>', 200);
+          }
+          return http.Response('not found', 404);
+        }),
+        baseUrl: 'https://schule.example.de/iserv',
+      );
+
+      final tasks = await fetchTasks(session);
+
+      expect(tasks.map((t) => t.title), [
+        'Projekt Netzteil',
+        'Referat Energiewende',
+      ]);
     });
   });
 

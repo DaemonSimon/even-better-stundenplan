@@ -1,6 +1,8 @@
 import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 
+import 'http_timeout.dart';
+
 /// Ein Eintrag des Kollegiums: Kürzel, voller Name, Foto-URL.
 class TeacherEntry {
   const TeacherEntry({
@@ -71,8 +73,7 @@ class TeacherDirectory {
     final request = http.Request('GET', Uri.parse(_baseUrl));
     request.headers['User-Agent'] = _userAgent;
 
-    final streamed = await _client.send(request);
-    final response = await http.Response.fromStream(streamed);
+    final response = await sendWithTimeout(_client, request);
 
     if (response.statusCode != 200) {
       throw http.ClientException(

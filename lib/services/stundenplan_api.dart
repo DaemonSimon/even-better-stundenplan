@@ -1,5 +1,7 @@
 import 'package:http/http.dart' as http;
 
+import 'http_timeout.dart';
+
 /// HTTP-Schicht für virtueller-stundenplan.org.
 /// Kümmert sich nur um Requests; Parsing passiert im StundenplanParser.
 class StundenplanApi {
@@ -29,8 +31,7 @@ class StundenplanApi {
     request.headers['Cookie'] = 'PHPSESSID=$sessionId';
     request.headers['User-Agent'] = _userAgent;
 
-    final streamedResponse = await _client.send(request);
-    return http.Response.fromStream(streamedResponse);
+    return sendWithTimeout(_client, request);
   }
 
   void close() => _client.close();

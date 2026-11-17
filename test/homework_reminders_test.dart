@@ -5,6 +5,24 @@ import 'package:better_stundenplan/services/homework_reminders.dart';
 import 'package:better_stundenplan/services/iserv_calendar.dart';
 
 void main() {
+  test('Klausur: Erinnerung am Vorabend um 18:00', () {
+    final exam = IservCalendarEvent(
+      id: 'exam',
+      title: 'Klausur Deutsch (Klausur) - ITA26-1',
+      start: DateTime(2026, 11, 23, 8, 10),
+    );
+
+    expect(
+      HomeworkReminders.examReminderAt(exam, now: DateTime(2026, 11, 16)),
+      DateTime(2026, 11, 22, 18),
+    );
+    // Vorabend schon vorbei -> keine Erinnerung mehr.
+    expect(
+      HomeworkReminders.examReminderAt(exam, now: DateTime(2026, 11, 22, 19)),
+      isNull,
+    );
+  });
+
   test('plant die Erinnerung mit Vorlauf und eingestellter Uhrzeit', () {
     final reminder = HomeworkReminders.reminderAt(
       '2026-11-12T08:30',

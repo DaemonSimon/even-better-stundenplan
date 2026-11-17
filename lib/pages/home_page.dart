@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -196,6 +197,10 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
         _groupStore.saveGroup(value);
       },
       onSettingsChanged: _onSettingsChanged,
+      onLogout: () async {
+        await widget.sessionManager.logout();
+        if (mounted) context.go('/authenticate');
+      },
     );
   }
 
@@ -250,6 +255,8 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
       initialDate: current,
       firstDate: DateTime(current.year - 1, current.month, current.day),
       lastDate: DateTime(current.year + 1, current.month, current.day),
+      // Nur Schultage (Mo–Fr) auswählbar.
+      selectableDayPredicate: (day) => day.weekday <= DateTime.friday,
     );
 
     if (date != null && mounted) {
@@ -284,7 +291,27 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
           _selectedDayIndex = index;
         });
       },
+      onNextWeek: _goToNextWeek,
+      onPreviousWeek: _goToPreviousWeek,
     );
+  }
+
+  /// Am Montag zurückgewischt: Freitag der Vorwoche anzeigen.
+  void _goToPreviousWeek() {
+    setState(() {
+      _baseDate = _weekStart.subtract(const Duration(days: 7));
+      _selectedDayIndex = 4;
+    });
+    if (_appSettings.syncIservCalendar) unawaited(_syncCalendar());
+  }
+
+  /// Am Freitag weitergewischt: Montag der nächsten Woche anzeigen.
+  void _goToNextWeek() {
+    setState(() {
+      _baseDate = _weekStart.add(const Duration(days: 7));
+      _selectedDayIndex = 0;
+    });
+    if (_appSettings.syncIservCalendar) unawaited(_syncCalendar());
   }
 
   @override
@@ -331,9 +358,12 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
         backgroundColor: theme.colorScheme.surfaceDim,
         title: GestureDetector(
           // Debug-Uhr: lange auf den Titel drücken (statt sichtbarem
-          // Icon in der AppBar).
-          onLongPress: _openDebugClock,
-          child: Text(widget.title),
+          // Icon in der AppBar). Nur in Debug-Builds – in Release-Builds
+          // soll niemand die App versehentlich auf eine falsche Zeit stellen.
+          onLongPress: kDebugMode ? _openDebugClock : null,
+          child: Text(
+            _viewMode == TimetableViewMode.weekly ? 'Aufgaben' : widget.title,
+          ),
         ),
         actions: [
           if (showCalendar)
@@ -353,19 +383,22 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
             icon: const Icon(Icons.settings_outlined),
             onPressed: _openSettings,
           ),
-          if (_clock.isCustomized) _DebugClockBadge(clock: _clock),
+          if (kDebugMode && _clock.isCustomized)
+            _DebugClockBadge(clock: _clock),
         ],
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _WeekHeader(
-            selectedDate: _selectedDate,
-            weekSpan: dateSpan,
-            showTodayButton: !_isTodaySelected,
-            onPickWeek: () => _chooseWeek(context),
-            onGoToToday: _goToToday,
-          ),
+          // Tag/Woche nur im Stundenplan – die Aufgaben sind wochenunabhängig.
+          if (_viewMode == TimetableViewMode.daily)
+            _WeekHeader(
+              selectedDate: _selectedDate,
+              weekSpan: dateSpan,
+              showTodayButton: !_isTodaySelected,
+              onPickWeek: () => _chooseWeek(context),
+              onGoToToday: _goToToday,
+            ),
           if (_calendarError != null && showCalendar)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),

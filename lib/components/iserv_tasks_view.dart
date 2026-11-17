@@ -5,8 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'homework_image_viewer.dart';
+import '../pages/iserv_task_page.dart';
+import '../pages/iserv_web_page.dart';
+import '../services/iserv_task_detail.dart';
 
 import '../services/homework_attachments.dart';
 import '../services/app_settings.dart';
@@ -24,12 +28,15 @@ class IservTasksView extends StatefulWidget {
   const IservTasksView({
     super.key,
     this.session,
-    this.calendarEvents = const [],
+    this.upcomingEvents = const [],
   });
 
   /// Nur für Tests injizierbare Session (Standard: echte IServ-Session).
   final IservSession? session;
-  final List<IservCalendarEvent> calendarEvents;
+
+  /// Kalendertermine der nächsten zwei Wochen (Klausuren werden rot
+  /// hervorgehoben).
+  final List<IservCalendarEvent> upcomingEvents;
 
   @override
   State<IservTasksView> createState() => _IservTasksViewState();
@@ -42,6 +49,8 @@ class _IservTasksViewState extends State<IservTasksView>
   late final TempAssignmentStore _store = TempAssignmentStore();
 
   List<Map<String, dynamic>>? _tasks;
+  List<IservTask> _pastTasks = const [];
+  bool _showPastTasks = false;
   bool _loading = true;
   bool _iservAuthenticated = false;
   bool _showLoginForm = false;
@@ -101,22 +110,6 @@ class _IservTasksViewState extends State<IservTasksView>
     }
   }
 
-  /// Kopiert Fehlermeldung + Request-Log automatisch in die
-  /// Zwischenablage, damit der Nutzer sie dem Entwickler schicken kann.
-  Future<void> _copyErrorToClipboard(String message) async {
-    final log = _session.requestLog.toList();
-    final text = log.isEmpty
-        ? message
-        : '$message\n\nLetzte Requests:\n${log.join('\n')}';
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Fehler + Log kopiert – bitte an den Entwickler schicken'),
-      ),
-    );
-  }
-
   Future<void> _refresh() async {
     setState(() {
       _loading = true;
@@ -129,8 +122,15 @@ class _IservTasksViewState extends State<IservTasksView>
       }
       final authenticated = await _session.isAuthenticated();
       List<IservTask> iservTasks = const <IservTask>[];
+      List<IservTask> pastTasks = const <IservTask>[];
       if (authenticated) {
         iservTasks = await fetchTasks(_session);
+        // Vergangene Aufgaben sind optional – Fehler dort ignorieren.
+        try {
+          pastTasks = await fetchPastTasks(_session);
+        } catch (error) {
+          debugPrint('Vergangene IServ-Aufgaben nicht ladbar: $error');
+        }
       }
       final tempTasks = await _store.load();
       _scheduleCleanup(tempTasks);
@@ -144,6 +144,7 @@ class _IservTasksViewState extends State<IservTasksView>
         _iservAuthenticated = authenticated;
         _showLoginForm = false;
         _tasks = merged;
+        _pastTasks = pastTasks;
         _loading = false;
       });
       unawaited(_syncReminders(merged));
@@ -163,7 +164,6 @@ class _IservTasksViewState extends State<IservTasksView>
         _loading = false;
       });
       unawaited(_syncReminders(localTasks));
-      await _copyErrorToClipboard(exc.message);
     } catch (error) {
       if (!mounted) return;
       try {
@@ -217,6 +217,9 @@ class _IservTasksViewState extends State<IservTasksView>
           'Anmeldung fehlgeschlagen – Zugangsdaten prüfen',
         );
       }
+      // Login hat geklappt: Passwortmanager darf die Daten speichern
+      // (vor dem Leeren des Passwortfelds).
+      TextInput.finishAutofillContext();
       _passwordController.clear();
       _showLoginForm = false;
       await _refresh();
@@ -226,7 +229,14 @@ class _IservTasksViewState extends State<IservTasksView>
         _loginError = exc.message;
         _loading = false;
       });
-      await _copyErrorToClipboard(exc.message);
+    } catch (exc) {
+      // Unerwartete Fehler dürfen die Ansicht nicht im Ladezustand
+      // hängen lassen.
+      if (!mounted) return;
+      setState(() {
+        _loginError = 'Anmeldung fehlgeschlagen: $exc';
+        _loading = false;
+      });
     }
   }
 
@@ -376,24 +386,36 @@ class _IservTasksViewState extends State<IservTasksView>
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
-              TextField(
-                controller: _usernameController,
-                decoration: const InputDecoration(
-                  labelText: 'Account',
-                  prefixIcon: Icon(Icons.person_outline),
+              // AutofillGroup: Passwortmanager erkennen Account + Passwort
+              // als IServ-Login und bieten Ausfüllen/Speichern an.
+              AutofillGroup(
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _usernameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Account',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      autofocus: true,
+                      autocorrect: false,
+                      autofillHints: const [AutofillHints.username],
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _passwordController,
+                      decoration: const InputDecoration(
+                        labelText: 'Passwort',
+                        prefixIcon: Icon(Icons.key_outlined),
+                      ),
+                      obscureText: true,
+                      autofillHints: const [AutofillHints.password],
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _login(),
+                    ),
+                  ],
                 ),
-                autofocus: true,
-                autocorrect: false,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Passwort',
-                  prefixIcon: Icon(Icons.key_outlined),
-                ),
-                obscureText: true,
-                onSubmitted: (_) => _login(),
               ),
               if (_loginError != null) ...[
                 const SizedBox(height: 8),
@@ -420,34 +442,10 @@ class _IservTasksViewState extends State<IservTasksView>
   Widget _buildTaskList(BuildContext context) {
     final tasks = _tasks ?? const [];
     final theme = Theme.of(context);
+    final events = widget.upcomingEvents;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Hausaufgaben (${tasks.length})',
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-              if (!_iservAuthenticated)
-                IconButton(
-                  tooltip: 'Bei IServ anmelden',
-                  icon: const Icon(Icons.login),
-                  onPressed: () => setState(() => _showLoginForm = true),
-                ),
-              if (_iservAuthenticated)
-                IconButton(
-                  tooltip: 'Abmelden',
-                  icon: const Icon(Icons.logout),
-                  onPressed: _logout,
-                ),
-            ],
-          ),
-        ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -458,59 +456,116 @@ class _IservTasksViewState extends State<IservTasksView>
               ),
             ),
           ),
+        // Ohne IServ-Anmeldung fehlen die IServ-Aufgaben – deutlich sagen,
+        // statt nur "Keine Hausaufgaben" zu zeigen.
+        if (!_iservAuthenticated && _error == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+            child: Material(
+              color: theme.colorScheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Nicht bei IServ angemeldet – IServ-Aufgaben werden '
+                        'erst nach der Anmeldung angezeigt.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => setState(() => _showLoginForm = true),
+                      child: const Text('Anmelden'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refresh,
-            child: tasks.isEmpty && widget.calendarEvents.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      SizedBox(
-                        height: 240,
-                        child: Center(
-                          child: Text(
-                            'Keine Hausaufgaben',
-                            style: theme.textTheme.bodyLarge,
-                          ),
-                        ),
+            // Aufbau: Termine (inkl. Klausuren) -> offene Aufgaben ->
+            // vergangene Aufgaben (eingeklappt) -> IServ abmelden.
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+              children: [
+                if (events.isNotEmpty) ...[
+                  const _SectionHeader(title: 'Termine (nächste 2 Wochen)'),
+                  for (final event in events) _CalendarTaskEntry(event: event),
+                ],
+                _SectionHeader(title: 'Offene Aufgaben (${tasks.length})'),
+                if (tasks.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'Keine offenen Aufgaben',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                    ],
+                    ),
                   )
-                : ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(12),
-                    children: [
-                      if (widget.calendarEvents.isNotEmpty) ...[
-                        Text(
-                          'Kalendereinträge dieser Woche',
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        for (final event in widget.calendarEvents)
-                          _CalendarTaskEntry(event: event),
-                        const SizedBox(height: 12),
-                      ],
-                      if (tasks.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: Text('Keine Hausaufgaben')),
-                        )
-                      else
-                        for (final task in tasks)
-                          _TaskCard(
-                            task: task,
-                            onEdit: task['source'] == 'temp'
-                                ? () => _editTempAssignment(task)
-                                : null,
-                            onDelete: task['source'] == 'temp'
-                                ? () => _deleteTempAssignment(task)
-                                : null,
-                            onToggleCompleted: task['source'] == 'temp'
-                                ? () => _toggleCompleted(task)
-                                : null,
-                          ),
-                    ],
+                else
+                  for (final task in tasks)
+                    _TaskCard(
+                      task: task,
+                      onEdit: task['source'] == 'temp'
+                          ? () => _editTempAssignment(task)
+                          : null,
+                      onDelete: task['source'] == 'temp'
+                          ? () => _deleteTempAssignment(task)
+                          : null,
+                      onToggleCompleted: task['source'] == 'temp'
+                          ? () => _toggleCompleted(task)
+                          : null,
+                      onOpen: (task['links'] as List).isEmpty
+                          ? null
+                          : () => _openLink(
+                              context,
+                              _session,
+                              (task['links'] as List).first.toString(),
+                              title: task['title'] as String,
+                            ),
+                    ),
+                if (_pastTasks.isNotEmpty) ...[
+                  _SectionHeader(
+                    title: 'Vergangene Aufgaben (${_pastTasks.length})',
+                    expanded: _showPastTasks,
+                    onTap: () =>
+                        setState(() => _showPastTasks = !_showPastTasks),
                   ),
+                  if (_showPastTasks)
+                    for (final task in _pastTasks)
+                      _PastTaskEntry(
+                        task: task,
+                        onTap: task.links.isEmpty
+                            ? null
+                            : () => _openLink(
+                                context,
+                                _session,
+                                task.links.first,
+                                title: task.title,
+                              ),
+                      ),
+                ],
+                if (_iservAuthenticated) ...[
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _logout,
+                      icon: const Icon(Icons.logout, size: 18),
+                      label: const Text('Von IServ abmelden'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ],
@@ -595,6 +650,46 @@ class _IservTasksViewState extends State<IservTasksView>
   }
 }
 
+/// Einheitliche Abschnittsüberschrift; mit [onTap] auf-/zuklappbar.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, this.expanded, this.onTap});
+
+  final String title;
+  final bool? expanded;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (expanded != null)
+              Icon(
+                expanded! ? Icons.expand_less : Icons.expand_more,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Kalendertermin; Klausuren mit rotem Rand und "Klausur"-Kennzeichnung.
 class _CalendarTaskEntry extends StatelessWidget {
   const _CalendarTaskEntry({required this.event});
 
@@ -602,22 +697,78 @@ class _CalendarTaskEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final when =
+    final theme = Theme.of(context);
+    final allDay =
         event.start.hour == 0 &&
-            event.start.minute == 0 &&
-            (event.end == null ||
-                event.end!.difference(event.start).inHours >= 23)
-        ? 'Ganztägig'
-        : DateFormat('EEE, dd.MM. · HH:mm', 'de_DE').format(event.start);
+        event.start.minute == 0 &&
+        (event.end == null ||
+            event.end!.difference(event.start).inHours >= 23);
+    final day = DateFormat('EEE, dd.MM.', 'de_DE').format(event.start);
+    final time = allDay
+        ? 'ganztägig'
+        : event.end == null
+        ? DateFormat('HH:mm').format(event.start)
+        : '${DateFormat('HH:mm').format(event.start)}–'
+              '${DateFormat('HH:mm').format(event.end!)}';
+    final accent = event.isExam
+        ? theme.colorScheme.error
+        : theme.colorScheme.onSurfaceVariant;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: accent, width: 4)),
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(event.title, style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 12,
+              runSpacing: 2,
+              children: [
+                if (event.isExam)
+                  _MetaRow(icon: Icons.assignment_late_outlined, text: 'Klausur'),
+                _MetaRow(icon: Icons.event, text: '$day · $time'),
+              ],
+            ),
+            if (event.description.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(event.description.trim(), style: theme.textTheme.bodySmall),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Kompakter Eintrag einer vergangenen IServ-Aufgabe.
+class _PastTaskEntry extends StatelessWidget {
+  const _PastTaskEntry({required this.task, this.onTap});
+
+  final IservTask task;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
       child: ListTile(
-        leading: const Icon(Icons.event_outlined),
-        title: Text(event.title),
-        subtitle: Text(
-          event.description.isEmpty ? when : '$when\n${event.description}',
+        dense: true,
+        title: Text(
+          task.title,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
-        isThreeLine: event.description.isNotEmpty,
+        subtitle: Text('Abgabe: ${_formatDueDate(task.dueDate)}'),
+        trailing: onTap == null ? null : const Icon(Icons.open_in_new, size: 18),
+        onTap: onTap,
       ),
     );
   }
@@ -629,12 +780,16 @@ class _TaskCard extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.onToggleCompleted,
+    this.onOpen,
   });
 
   final Map<String, dynamic> task;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onToggleCompleted;
+
+  /// IServ-Aufgabe in der App öffnen.
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -644,10 +799,12 @@ class _TaskCard extends StatelessWidget {
     final completed = task['completed_at'] is String;
     final hour = task['hour'] as String?;
 
+    final links = (task['links'] as List).cast<Object>();
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        onTap: onEdit,
+        // Eigene Aufgaben: bearbeiten. IServ-Aufgaben: in der App öffnen.
+        onTap: onEdit ?? onOpen,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -683,6 +840,15 @@ class _TaskCard extends StatelessWidget {
                       visualDensity: VisualDensity.compact,
                       onPressed: onDelete,
                     ),
+                  if (!isTemp && links.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8, top: 2),
+                      child: Icon(
+                        Icons.open_in_new,
+                        size: 18,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -702,6 +868,7 @@ class _TaskCard extends StatelessWidget {
                       ),
                     _MetaRow(icon: Icons.event, text: 'Abgabe: $dueDate'),
                   ] else ...[
+                    const _MetaRow(icon: Icons.cloud_outlined, text: 'IServ'),
                     if ((task['subject'] as String).isNotEmpty)
                       _MetaRow(
                         icon: Icons.menu_book,
@@ -712,7 +879,7 @@ class _TaskCard extends StatelessWidget {
                         icon: Icons.person_outline,
                         text: task['teacher'] as String,
                       ),
-                    _MetaRow(icon: Icons.event, text: dueDate),
+                    _MetaRow(icon: Icons.event, text: 'Abgabe: $dueDate'),
                     if (task['slot'] != null)
                       _MetaRow(
                         icon: Icons.schedule,
@@ -765,37 +932,45 @@ class _TaskCard extends StatelessWidget {
                   ),
                 ),
               ],
-              if ((task['links'] as List).isNotEmpty) ...[
-                const SizedBox(height: 4),
-                for (final link in (task['links'] as List).take(3))
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.link,
-                          size: 14,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            link.toString(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Öffnet einen Link: IServ-Seiten direkt in der App (angemeldet),
+/// alles andere im Browser.
+Future<void> _openLink(
+  BuildContext context,
+  IservSession session,
+  String url, {
+  String title = 'IServ',
+}) async {
+  // Aufgaben: eigene Detailseite der App.
+  if (session.isIservUrl(url) && isTaskDetailUrl(url)) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => IservTaskPage(url: url, session: session, title: title),
+      ),
+    );
+    return;
+  }
+  if (session.isIservUrl(url)) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => IservWebPage(url: url, session: session, title: title),
+      ),
+    );
+    return;
+  }
+  final uri = Uri.tryParse(url);
+  final opened =
+      uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!opened && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Link konnte nicht geöffnet werden')),
     );
   }
 }

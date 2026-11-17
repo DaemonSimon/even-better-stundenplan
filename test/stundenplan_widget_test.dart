@@ -385,6 +385,41 @@ void main() {
     },
   );
 
+  testWidgets('settings sheet logs out after confirmation', (tester) async {
+    var loggedOut = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showGroupSettingsSheet(
+                context,
+                group: null,
+                onChanged: (_) {},
+                onLogout: () => loggedOut++,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final logout = find.text('Vom Stundenplan abmelden');
+    await tester.scrollUntilVisible(logout, 100);
+    await tester.tap(logout);
+    await tester.pumpAndSettle();
+    expect(loggedOut, 0); // erst nach Bestätigung
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Abmelden'));
+    await tester.pumpAndSettle();
+
+    expect(loggedOut, 1);
+    expect(find.text('Einstellungen'), findsNothing); // Sheet geschlossen
+  });
+
   testWidgets('tapping the teacher name opens the teacher photo dialog', (
     tester,
   ) async {
@@ -616,17 +651,39 @@ void main() {
 
     // Lokale Aufgaben bleiben ohne IServ-Login erreichbar.
     expect(find.text('IServ-Anmeldung'), findsNothing);
-    expect(find.text('Keine Hausaufgaben'), findsOneWidget);
+    expect(find.text('Keine offenen Aufgaben'), findsOneWidget);
     expect(find.byTooltip('Hausaufgabe eintragen'), findsNothing);
-    expect(find.byTooltip('Bei IServ anmelden'), findsOneWidget);
-    expect(find.byTooltip('Abmelden'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'Anmelden'), findsOneWidget);
+    expect(find.text('Von IServ abmelden'), findsNothing);
 
-    await tester.tap(find.byTooltip('Bei IServ anmelden'));
+    await tester.tap(find.widgetWithText(TextButton, 'Anmelden'));
     await tester.pumpAndSettle();
     expect(find.text('Zurück zu lokalen Aufgaben'), findsNothing);
   });
 
-  testWidgets('weekly homework view also lists calendar events for that week', (
+  testWidgets('weekly mode shows the tasks view even if the timetable fails', (
+    tester,
+  ) async {
+    final repository = StundenplanRepository(
+      sessionManager: sessionManager,
+      api: StundenplanApi(
+        client: MockClient(
+          (_) async => throw http.ClientException('offline'),
+        ),
+      ),
+      cache: TimetableCache(disk: _NoopDiskCache()),
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(repository, mode: TimetableViewMode.weekly),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Netzwerkfehler'), findsNothing);
+    expect(find.text('Keine offenen Aufgaben'), findsOneWidget);
+  });
+
+  testWidgets('tasks view lists calendar events of the next two weeks', (
     tester,
   ) async {
     final repository = fixtureRepository(
@@ -638,26 +695,41 @@ void main() {
       buildTestWidget(
         repository,
         mode: TimetableViewMode.weekly,
+        clock: () => DateTime(2026, 8, 10, 7),
         calendarEvents: [
           IservCalendarEvent(
-            id: 'week-event',
+            id: 'past-event',
+            title: 'Vorbei',
+            start: DateTime(2026, 8, 7, 8),
+          ),
+          IservCalendarEvent(
+            id: 'soon-event',
             title: 'Wandertag',
             start: DateTime(2026, 8, 12, 8),
             description: 'Treffen am Haupteingang',
           ),
           IservCalendarEvent(
-            id: 'other-week-event',
-            title: 'Anderer Termin',
-            start: DateTime(2026, 8, 20, 8),
+            id: 'exam',
+            title: 'Klausur Mathe',
+            start: DateTime(2026, 8, 20, 8, 10),
+          ),
+          IservCalendarEvent(
+            id: 'far-event',
+            title: 'Zu weit weg',
+            start: DateTime(2026, 8, 30, 8),
           ),
         ],
       ),
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Termine (nächste 2 Wochen)'), findsOneWidget);
     expect(find.text('Wandertag'), findsOneWidget);
-    expect(find.textContaining('Treffen am Haupteingang'), findsOneWidget);
-    expect(find.text('Anderer Termin'), findsNothing);
+    expect(find.text('Treffen am Haupteingang'), findsOneWidget);
+    expect(find.text('Klausur Mathe'), findsOneWidget);
+    expect(find.text('Klausur'), findsOneWidget); // Kennzeichnung
+    expect(find.text('Vorbei'), findsNothing);
+    expect(find.text('Zu weit weg'), findsNothing);
   });
 
   testWidgets(
@@ -703,6 +775,48 @@ void main() {
       expect(find.text('Arbeitsblatt vollständig bearbeiten'), findsOneWidget);
     },
   );
+
+  testWidgets('an exam turns the lesson card red and shows its description', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_double_hours.html',
+    );
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        repository,
+        day: 4,
+        calendarEvents: [
+          IservCalendarEvent(
+            id: 'exam',
+            title: 'Klausur Deutsch (Klausur) - ITA26-1',
+            start: DateTime(2026, 8, 14, 8, 10),
+            end: DateTime(2026, 8, 14, 9, 40),
+            description: 'Erörterung, Wörterbuch erlaubt',
+            calendar: 'Klausurplan',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Karten im Block 1+2 sind als Klausur markiert, die übrigen nicht.
+    final cards = tester.widgetList<ClassCard>(find.byType(ClassCard));
+    expect(cards.where((c) => c.isExam), isNotEmpty);
+    expect(cards.where((c) => !c.isExam), isNotEmpty);
+    for (final card in cards.where((c) => c.isExam)) {
+      expect(card.blockTime.start, const TimeOfDay(hour: 8, minute: 10));
+    }
+
+    await tester.tap(find.byTooltip('Kalendereinträge anzeigen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Klausur Deutsch (Klausur) - ITA26-1'), findsOneWidget);
+    expect(find.text('Erörterung, Wörterbuch erlaubt'), findsOneWidget);
+    expect(find.text('Kalender: Klausurplan'), findsOneWidget);
+  });
 
   testWidgets('live double hour gets the live frame, no JETZT badge', (
     tester,
@@ -1070,6 +1184,125 @@ void main() {
     // im rechten Kartenbereich.
     final pillLeft = tester.getTopLeft(find.text('09:00')).dx;
     expect(pillLeft, greaterThan(76));
+  });
+
+  testWidgets('swiping left on Friday jumps to the next week', (tester) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_double_hours.html',
+    );
+    var nextWeekCalls = 0;
+    final selected = <int>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StundenplanWidget(
+            weekStart: DateTime(2026, 8, 10),
+            viewMode: TimetableViewMode.daily,
+            selectedDayIndex: 4, // Freitag
+            onDaySelected: selected.add,
+            onNextWeek: () => nextWeekCalls++,
+            repository: repository,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+
+    expect(nextWeekCalls, 1);
+    expect(selected, isEmpty);
+  });
+
+  testWidgets('swiping right on Monday jumps to the previous week', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_double_hours.html',
+    );
+    var previousWeekCalls = 0;
+    var nextWeekCalls = 0;
+    final selected = <int>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StundenplanWidget(
+            weekStart: DateTime(2026, 8, 10),
+            viewMode: TimetableViewMode.daily,
+            selectedDayIndex: 0, // Montag
+            onDaySelected: selected.add,
+            onNextWeek: () => nextWeekCalls++,
+            onPreviousWeek: () => previousWeekCalls++,
+            repository: repository,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Mit Übergangsseite davor startet die Ansicht trotzdem am Montag.
+    expect(find.text('Vorherige Woche'), findsNothing);
+
+    await tester.drag(find.byType(PageView), const Offset(600, 0));
+    await tester.pumpAndSettle();
+
+    expect(previousWeekCalls, 1);
+    expect(nextWeekCalls, 0);
+    expect(selected, isEmpty);
+  });
+
+  testWidgets('with both week pages, day swipes still select the right day', (
+    tester,
+  ) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_double_hours.html',
+    );
+    final selected = <int>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StundenplanWidget(
+            weekStart: DateTime(2026, 8, 10),
+            viewMode: TimetableViewMode.daily,
+            selectedDayIndex: 0,
+            onDaySelected: selected.add,
+            onNextWeek: () {},
+            onPreviousWeek: () {},
+            repository: repository,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Montag -> nach links -> Dienstag (Index 1).
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+
+    expect(selected, [1]);
+  });
+
+  testWidgets('without onNextWeek Friday is the last page', (tester) async {
+    final repository = fixtureRepository(
+      sessionManager,
+      'week_with_double_hours.html',
+    );
+
+    await tester.pumpWidget(buildTestWidget(repository)); // Freitag
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(PageView), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Nächste Woche'), findsNothing);
+    expect(find.text('Mathe'), findsOneWidget);
   });
 
   testWidgets(

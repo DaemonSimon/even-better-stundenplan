@@ -15,6 +15,7 @@ Future<void> showGroupSettingsSheet(
   required String? group,
   required ValueChanged<String?> onChanged,
   VoidCallback? onSettingsChanged,
+  VoidCallback? onLogout,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -24,6 +25,7 @@ Future<void> showGroupSettingsSheet(
       group: group,
       onChanged: onChanged,
       onSettingsChanged: onSettingsChanged,
+      onLogout: onLogout,
     ),
   );
 }
@@ -36,6 +38,7 @@ class GroupSettingsSheet extends StatefulWidget {
     required this.group,
     required this.onChanged,
     this.onSettingsChanged,
+    this.onLogout,
   });
 
   /// Aktuell gespeicherte Gruppe (z. B. "A") oder null.
@@ -45,6 +48,9 @@ class GroupSettingsSheet extends StatefulWidget {
   /// Sheet geschlossen wurde.
   final ValueChanged<String?> onChanged;
   final VoidCallback? onSettingsChanged;
+
+  /// Abmelden vom Stundenplan-Konto (nach Bestätigung, Sheet ist zu).
+  final VoidCallback? onLogout;
 
   @override
   State<GroupSettingsSheet> createState() => _GroupSettingsSheetState();
@@ -93,6 +99,31 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
   void _select(BuildContext context, String? value) {
     Navigator.of(context).pop();
     widget.onChanged(value);
+  }
+
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Abmelden?'),
+        content: const Text(
+          'Gespeicherte Zugangsdaten für den Stundenplan werden gelöscht.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Abmelden'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    Navigator.of(context).pop();
+    widget.onLogout?.call();
   }
 
   Future<void> _chooseReminderTime() async {
@@ -264,6 +295,22 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
                   _settings.copyWith(syncIservCalendar: value),
                 ),
               ),
+              if (widget.onLogout != null) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Konto',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _confirmLogout,
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Vom Stundenplan abmelden'),
+                ),
+              ],
             ],
           ],
           ),

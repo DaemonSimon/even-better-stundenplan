@@ -11,6 +11,7 @@ import '../services/stundenplan_repository.dart';
 import 'daily_agenda_view.dart';
 import 'day_selector.dart';
 import 'iserv_tasks_view.dart';
+import 'scale_to_fit_height.dart';
 
 /// Anzeigemodus der Stundenplan-Ansicht.
 enum TimetableViewMode {
@@ -31,6 +32,8 @@ class StundenplanWidget extends StatefulWidget {
     required this.selectedDayIndex,
     required this.repository,
     required this.onDaySelected,
+    this.onNextWeek,
+    this.onPreviousWeek,
     this.teacherDirectory,
     this.clock,
     this.tickInterval,
@@ -50,6 +53,15 @@ class StundenplanWidget extends StatefulWidget {
   final StundenplanRepository repository;
 
   final ValueChanged<int> onDaySelected;
+
+  /// Wird aufgerufen, wenn am Freitag nach links weitergewischt wird.
+  /// Ist er gesetzt, folgt auf Freitag eine Übergangsseite zur nächsten
+  /// Woche.
+  final VoidCallback? onNextWeek;
+
+  /// Gegenstück zu [onNextWeek]: am Montag nach rechts weitergewischt.
+  /// Ist er gesetzt, steht vor Montag eine Übergangsseite zur Vorwoche.
+  final VoidCallback? onPreviousWeek;
 
   /// Kollegiums-Verzeichnis für die Auflösung der Kürzel zu vollen Namen.
   final TeacherDirectoryProvider? teacherDirectory;
@@ -137,7 +149,11 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
   /// Seite der Tagesansicht für einen Wochentag: Die Tage sind in
   /// Wochenreihenfolge angeordnet (Montag zuerst), sodass Wischen nach
   /// links zum nächsten Tag führt.
-  int _pageFor(int dayIndex) => dayIndex.clamp(0, _dayCount - 1);
+  int _pageFor(int dayIndex) =>
+      dayIndex.clamp(0, _dayCount - 1) + _leadingPages;
+
+  /// 1, wenn vor Montag die Übergangsseite zur Vorwoche steht.
+  int get _leadingPages => widget.onPreviousWeek != null ? 1 : 0;
 
   Future<TimetableResult> _load() {
     return widget.repository.getTimetable(
@@ -165,16 +181,6 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     // Mo–Fr für die Auswahl.
     final weekDays = allDays.length >= 5 ? allDays.sublist(0, 5) : allDays;
 
-    if (widget.viewMode == TimetableViewMode.weekly) {
-      final weekEnd = widget.weekStart.add(const Duration(days: 7));
-      final weekEvents = widget.calendarEvents.where((event) {
-        final eventEnd = event.end ?? event.start;
-        return event.start.isBefore(weekEnd) &&
-            (eventEnd.isAfter(widget.weekStart) ||
-                event.start.isAtSameMomentAs(widget.weekStart));
-      }).toList()..sort((a, b) => a.start.compareTo(b.start));
-      return IservTasksView(calendarEvents: weekEvents);
-    }
 
     // Tagesansicht: oben die feste Tagesauswahl, darunter die per Wisch
     // durchblätterbaren Tage (Montag zuerst -> nach links wischen
@@ -191,49 +197,60 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
           child: PageView.builder(
             controller: _pageController,
             physics: const _SmoothPagePhysics(),
-            itemCount: weekDays.length,
+            // Vor Montag / nach Freitag je eine zusätzliche Seite: Wer
+            // dorthin wischt, landet am Freitag der Vorwoche bzw. am
+            // Montag der nächsten Woche.
+            itemCount: _leadingPages +
+                weekDays.length +
+                (widget.onNextWeek != null ? 1 : 0),
             onPageChanged: (page) {
               if (_animatingToDay) return;
-              final dayIndex = page;
+              final dayIndex = page - _leadingPages;
+              if (dayIndex < 0) {
+                widget.onPreviousWeek?.call();
+                return;
+              }
+              if (dayIndex >= weekDays.length) {
+                widget.onNextWeek?.call();
+                return;
+              }
               if (dayIndex != widget.selectedDayIndex) {
                 widget.onDaySelected(dayIndex);
               }
             },
             itemBuilder: (context, page) {
-              final dayIndex = page;
+              final dayIndex = page - _leadingPages;
+              if (dayIndex < 0) {
+                return _buildWeekChangePage(next: false);
+              }
+              if (dayIndex >= weekDays.length) {
+                return _buildWeekChangePage(next: true);
+              }
               return LayoutBuilder(
                 builder: (context, constraints) {
                   // Die Tagesansicht ist fest im Viewport verankert (kein
                   // Scrollen). Damit auch ein langer (8-Stunden-)Tag vollständig
                   // sichtbar bleibt, wird der gesamte Tag gleichmäßig
                   // herunterskaliert, bis er in die verfügbare Höhe passt
-                  // (BoxFit.scaleDown skaliert NIE hoch). Kurze Tage bleiben
-                  // 1:1 und strecken ihre Zeilen wie bisher bis zur Mindesthöhe.
-                  //
-                  // Wichtig: FittedBox gibt dem Kind unbegrenzte Constraints.
-                  // Das ConstrainedBox (maxWidth) darunter begrenzt die Breite
-                  // wieder, damit die Expanded-Zeilen/Card-Rows der Tagesansicht
-                  // eine finite Breite haben (sonst "BoxConstraints forces an
-                  // infinite width"). Die eigentliche natuerliche Hoehe misst
-                  // das FittedBox selbst in einem einzigen Layout-Durchlauf –
-                  // keine Mess-Schleife, keine setState-Rebuilds.
-                  return FittedBox(
-                    fit: BoxFit.scaleDown,
+                  // (nie hoch). Anders als FittedBox füllt ScaleToFitHeight
+                  // dabei weiterhin die volle Breite (keine leeren Ränder).
+                  // Kurze Tage bleiben 1:1 und strecken ihre Zeilen wie
+                  // bisher bis zur Mindesthöhe.
+                  return Align(
                     alignment: Alignment.topCenter,
-                    clipBehavior: Clip.none,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth - 24,
-                      ),
-                      child: DailyAgendaView(
-                        day: weekDays[dayIndex],
-                        isToday: todayIndex == dayIndex,
-                        clock: widget.clock,
-                        tickInterval: widget.tickInterval,
-                        teacherLookup: widget.teacherDirectory?.lookup,
-                        calendarEvents: widget.calendarEvents,
-                        group: widget.group,
-                        minHeight: constraints.maxHeight,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: ScaleToFitHeight(
+                        child: DailyAgendaView(
+                          day: weekDays[dayIndex],
+                          isToday: todayIndex == dayIndex,
+                          clock: widget.clock,
+                          tickInterval: widget.tickInterval,
+                          teacherLookup: widget.teacherDirectory?.lookup,
+                          calendarEvents: widget.calendarEvents,
+                          group: widget.group,
+                          minHeight: constraints.maxHeight,
+                        ),
                       ),
                     ),
                   );
@@ -265,6 +282,28 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     return null;
   }
 
+  /// Übergangsseite vor Montag bzw. hinter Freitag (sichtbar nur während
+  /// des Wischens).
+  Widget _buildWeekChangePage({required bool next}) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            next ? Icons.arrow_forward : Icons.arrow_back,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            next ? 'Nächste Woche' : 'Vorherige Woche',
+            style: theme.textTheme.titleMedium,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return const Center(child: Text('Kein Unterricht in dieser Woche'));
   }
@@ -289,8 +328,26 @@ class _StundenplanWidgetState extends State<StundenplanWidget> {
     );
   }
 
+  /// IServ-Aufgaben + Termine der nächsten zwei Wochen (ab heute,
+  /// unabhängig von der gewählten Woche). Hängt nicht vom
+  /// Stundenplan-Abruf ab und wird daher auch bei dessen Fehlern gezeigt.
+  Widget _buildTasksView() {
+    final now = _now();
+    final today = DateTime(now.year, now.month, now.day);
+    final until = today.add(const Duration(days: 15));
+    final upcoming = widget.calendarEvents.where((event) {
+      final eventEnd = event.end ?? event.start;
+      return event.start.isBefore(until) &&
+          (eventEnd.isAfter(today) || event.start.isAtSameMomentAs(today));
+    }).toList()..sort((a, b) => a.start.compareTo(b.start));
+    return IservTasksView(upcomingEvents: upcoming);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.viewMode == TimetableViewMode.weekly) {
+      return _buildTasksView();
+    }
     return FutureBuilder<TimetableResult>(
       future: _future,
       builder: (context, snapshot) {

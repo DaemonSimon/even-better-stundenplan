@@ -159,8 +159,10 @@ class StundenplanParser {
           }
         }
       }
-    } catch (_) {
-      // Bei Parse-Fehlern leere Woche zurückgeben.
+    } catch (exc) {
+      // Parse-Fehler NICHT als leere Woche melden – sonst würde das
+      // Repository "Kein Unterricht" cachen und gute Daten überschreiben.
+      throw FormatException('Stundenplan konnte nicht geparst werden: $exc');
     }
 
     return week;

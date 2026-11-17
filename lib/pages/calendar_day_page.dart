@@ -36,12 +36,31 @@ class CalendarDayPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            event.title,
-                            style: Theme.of(context).textTheme.titleMedium,
+                          Row(
+                            children: [
+                              if (event.isExam) ...[
+                                Icon(
+                                  Icons.assignment_late_outlined,
+                                  size: 18,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  event.title,
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(_eventTime(event)),
+                          if (event.calendar.trim().isNotEmpty)
+                            Text(
+                              'Kalender: ${event.calendar.trim()}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           if (event.description.trim().isNotEmpty) ...[
                             const SizedBox(height: 10),
                             SelectableText(event.description.trim()),

@@ -88,6 +88,22 @@ void main() {
       expect(storage.sessionId, isNull);
     });
 
+    test('checkAuthentication only visits the timetable page (page-5)', () async {
+      // page2 (Klassenbuch) stellt die Sitzungs-Ansicht um, danach fehlen
+      // auf page-5 die Vertretungs-Markierungen.
+      final storage = InMemoryCredentialStorage()..sessionId = 'abc123';
+      final paths = <String>[];
+      final client = MockClient((request) async {
+        paths.add(request.url.path);
+        return http.Response('', 200);
+      });
+      final manager = SessionManager(storage: storage, client: client);
+
+      await manager.checkAuthentication();
+
+      expect(paths, ['/page-5/index.php']);
+    });
+
     test('checkAuthentication succeeds for a non-redirect response', () async {
       final storage = InMemoryCredentialStorage()..sessionId = 'abc123';
       final client = MockClient((request) async {
@@ -119,6 +135,21 @@ void main() {
       expect(valid, isFalse);
       expect(manager.isLoggedIn, isFalse);
       expect(manager.sessionId, isNull);
+    });
+
+    test('checkAuthentication keeps the stored session when offline', () async {
+      final storage = InMemoryCredentialStorage()..sessionId = 'stored';
+      final client = MockClient(
+        (request) async => throw http.ClientException('offline'),
+      );
+      final manager = SessionManager(storage: storage, client: client);
+
+      final valid = await manager.checkAuthentication();
+
+      expect(valid, isTrue);
+      expect(manager.isLoggedIn, isTrue);
+      expect(manager.sessionId, 'stored');
+      expect(storage.sessionId, 'stored');
     });
 
     test('checkAuthentication fails without stored session', () async {

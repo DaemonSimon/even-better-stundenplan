@@ -126,9 +126,67 @@ List<String> _extractLinks(dynamic block, String baseUrl) {
   return links;
 }
 
+/// Liest die echte IServ-Aufgabenliste (`/iserv/exercise`): eine Tabelle
+/// `#crud-table` mit den Spalten "Aufgabe" (Link mit Titel),
+/// "Abgabetermin" (`data-date` als ISO-Zeitstempel) und "Tags".
+/// Liefert null, wenn die Seite keine solche Tabelle enthält.
+List<IservTask>? _parseCrudTable(dynamic doc, String baseUrl) {
+  final table = doc.querySelector('table#crud-table');
+  if (table == null) return null;
+
+  // Spalten über die Kopfzeile finden statt über feste Indizes.
+  final headers = [
+    for (final th in table.querySelectorAll('thead th'))
+      (th.text as String).trim().toLowerCase(),
+  ];
+  final titleCol = headers.indexWhere((h) => h.startsWith('aufgabe'));
+  final dueCol = headers.indexWhere((h) => h.contains('abgabe'));
+  final tagsCol = headers.indexWhere((h) => h == 'tags');
+  if (titleCol < 0) return null;
+
+  final tasks = <IservTask>[];
+  for (final row in table.querySelectorAll('tbody tr')) {
+    final cells = row.querySelectorAll('td');
+    if (titleCol >= cells.length) continue;
+    final titleCell = cells[titleCol];
+    final title = (titleCell.text as String)
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (title.isEmpty) continue;
+
+    String? due;
+    if (dueCol >= 0 && dueCol < cells.length) {
+      final dueCell = cells[dueCol];
+      final raw = dueCell.querySelector('[data-date]')?.attributes['data-date'] ??
+          dueCell.querySelector('li')?.text ??
+          dueCell.text;
+      due = parseDueDate((raw as String).trim());
+    }
+
+    var tags = '';
+    if (tagsCol >= 0 && tagsCol < cells.length) {
+      tags = (cells[tagsCol].text as String).trim();
+      if (tags.toLowerCase() == 'keine') tags = '';
+    }
+
+    tasks.add(
+      IservTask(
+        title: title,
+        subject: tags,
+        dueDate: due,
+        links: _extractLinks(titleCell, baseUrl),
+      ),
+    );
+  }
+  return tasks;
+}
+
 /// Parst die Aufgaben-Seite in eine de-duplizierte Aufgabenliste.
 List<IservTask> parseTasksPage(String htmlText, {String baseUrl = ''}) {
   final doc = html.parse(htmlText);
+
+  final tableTasks = _parseCrudTable(doc, baseUrl);
+  if (tableTasks != null) return tableTasks;
 
   var blocks = <dynamic>[];
   for (final selector in _taskSelectors) {
@@ -176,6 +234,14 @@ const _tasksPathCandidates = [
   '/exercise/',
   '/exercise',
 ];
+
+/// Vergangene Aufgaben (Abgabetermin vorbei) – gleiche Tabelle wie die
+/// offenen Aufgaben. Leer, wenn die Seite nicht existiert.
+Future<List<IservTask>> fetchPastTasks(IservSession session) async {
+  final response = await session.get('/exercise/past/exercise');
+  if (response.statusCode != 200) return const [];
+  return parseTasksPage(response.body, baseUrl: session.baseUrl);
+}
 
 /// Holt und parst die Aufgaben-Seite über die Session. Probiert bekannte
 /// Pfad-Kandidaten und findet den echten Modul-Pfad über die Links auf

@@ -9,6 +9,7 @@ import 'package:better_stundenplan/models/timetable.dart';
 import 'package:better_stundenplan/services/secure_storage.dart';
 import 'package:better_stundenplan/services/session_manager.dart';
 import 'package:better_stundenplan/services/stundenplan_api.dart';
+import 'package:better_stundenplan/services/stundenplan_parser.dart';
 import 'package:better_stundenplan/services/stundenplan_repository.dart';
 import 'package:better_stundenplan/services/timetable_cache.dart';
 
@@ -56,6 +57,13 @@ class _NoopDiskCache extends TimetableDiskCache {
 
   @override
   Future<WeeklyTimetable?> load(String weekKey) async => null;
+}
+
+/// Simuliert einen Parse-Fehler (z. B. geändertes HTML-Layout).
+class _ThrowingParser extends StundenplanParser {
+  @override
+  List<List<TimeSlot>> parseWeeklyTimetable(String htmlString) =>
+      throw const FormatException('kaputt');
 }
 
 void main() {
@@ -161,6 +169,33 @@ void main() {
       );
 
       expect(result, isA<TimetableSuccess>());
+    });
+
+    test('a parse failure keeps the cached week instead of caching an empty one',
+        () async {
+      final sharedCache = TimetableCache(disk: _NoopDiskCache());
+      final client = MockClient(
+        (request) async => http.Response(fixture('week_page5_real.html'), 200),
+      );
+      await StundenplanRepository(
+        sessionManager: sessionManager,
+        api: StundenplanApi(client: client),
+        cache: sharedCache,
+      ).getTimetable('10.08.2026', weeklyMode: true);
+      final goodWeek = sharedCache.getStale('10.08.2026')!;
+      expect(goodWeek.days.any((d) => d.timeSlots.isNotEmpty), isTrue);
+
+      final result = await StundenplanRepository(
+        sessionManager: sessionManager,
+        api: StundenplanApi(client: client),
+        parser: _ThrowingParser(),
+        cache: sharedCache,
+      ).getTimetable('10.08.2026', weeklyMode: true);
+
+      expect(result, isA<TimetableSuccess>());
+      final week = (result as TimetableSuccess).timetable;
+      expect(week.days.any((d) => d.timeSlots.isNotEmpty), isTrue);
+      expect(sharedCache.getStale('10.08.2026'), same(goodWeek));
     });
 
     test('single day mode returns only the requested day from the week', () async {

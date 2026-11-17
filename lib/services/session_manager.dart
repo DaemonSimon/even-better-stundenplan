@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import 'http_timeout.dart';
 import 'secure_storage.dart';
 
 /// Verwaltet Anmeldung, Sitzung und Abmeldung gegenüber virtueller-stundenplan.org.
@@ -37,8 +38,12 @@ class SessionManager extends ChangeNotifier {
     }
 
     // Beliebiges Datum: entscheidend ist nur, ob ein Redirect kommt.
+    // Bewusst dieselbe Seite wie der Wochen-Abruf (page-5): Ein Aufruf von
+    // page2 (Klassenbuch) stellt die Ansicht der Sitzung um, danach liefert
+    // page-5 keine Vertretungs-Markierung (<del>Original</del> + Vertreter)
+    // mehr und der Vertreter erscheint als regulärer Lehrer.
     final checkUrl =
-        'https://virtueller-stundenplan.org/page2/index.php'
+        'https://virtueller-stundenplan.org/page-5/index.php'
         '?KlaBuDatum=${DateFormat('dd.MM.yyyy').format(DateTime.now())}&RES=';
 
     try {
@@ -46,16 +51,20 @@ class SessionManager extends ChangeNotifier {
       request.followRedirects = false;
       request.headers['Cookie'] = 'PHPSESSID=$storedSessionId';
       request.headers['User-Agent'] = _userAgent;
-      final response = await _client.send(request);
+      final response = await _client.send(request).timeout(kHttpTimeout);
 
       final valid = !response.isRedirect;
       _sessionId = valid ? storedSessionId : null;
       _setLoggedIn(valid);
       return valid;
     } catch (_) {
-      _setLoggedIn(false);
-      _sessionId = null;
-      return false;
+      // Offline/Netzwerkfehler: Gültigkeit unbekannt. Die gespeicherte
+      // Sitzung behalten, damit der Cache angezeigt wird statt auf die
+      // Login-Seite zu springen – ist sie abgelaufen, meldet das
+      // Repository beim nächsten Abruf AuthExpired und meldet still neu an.
+      _sessionId = storedSessionId;
+      _setLoggedIn(true);
+      return true;
     }
   }
 
@@ -124,7 +133,7 @@ class SessionManager extends ChangeNotifier {
     request.headers['Content-Type'] = 'application/x-www-form-urlencoded';
     request.headers['User-Agent'] = _userAgent;
 
-    final response = await _client.send(request);
+    final response = await _client.send(request).timeout(kHttpTimeout);
 
     // Bei falschen Zugangsdaten liefert der Server einen Redirect auf die
     // Basis-URL; dann ist kein Set-Cookie zu erwarten.

@@ -16,6 +16,10 @@ const Color cardBackground = Color(0xFF323642);
 /// Rot für die Vertretung auf der Karte.
 const Color substituteRed = Color(0xFFF23838);
 
+/// Kartenhintergrund bei einer Klausur – dunkelrot, damit weiße und graue
+/// Schrift lesbar bleiben.
+const Color examBackground = Color(0xFF6B1A1F);
+
 /// Karten-Textfarbe: Weiß für das Fach, Hellgrau für Lehrkraft/Raum,
 /// abgestimmt auf den dunklen [cardBackground].
 const Color _cardWhite = Color(0xFFFFFFFF);
@@ -81,6 +85,7 @@ class ClassCard extends StatelessWidget {
     this.teacherLookup,
     this.stripGroup = false,
     this.hasHomework = false,
+    this.isExam = false,
     this.onTap,
   });
 
@@ -109,6 +114,9 @@ class ClassCard extends StatelessWidget {
   final TeacherLookup? teacherLookup;
 
   final bool hasHomework;
+
+  /// In dieser Stunde liegt eine Klausur (IServ-Kalender): roter Hintergrund.
+  final bool isExam;
 
   final VoidCallback? onTap;
 
@@ -295,7 +303,7 @@ class ClassCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: const BorderRadius.all(Radius.circular(16)),
-        color: cardBackground,
+        color: isExam ? examBackground : cardBackground,
         border: border,
       ),
       child: ClipRRect(

@@ -536,6 +536,11 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
                             compact: compact,
                             stripGroup: widget.group != null,
                             teacherLookup: widget.teacherLookup,
+                            // Klausur in diesem Block: Karte rot einfärben.
+                            isExam: _eventsForPeriods(
+                              periods,
+                              time,
+                            ).any((event) => event.isExam),
                             hasHomework: _hasHomework(
                               shown[i],
                               shown[i].periods.map((p) => p.period).toList(),

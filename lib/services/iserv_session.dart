@@ -4,6 +4,8 @@ import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'http_timeout.dart';
+
 /// Fehler bei der Kommunikation mit IServ.
 class IservException implements Exception {
   const IservException(this.message);
@@ -114,7 +116,10 @@ class IservSession {
           'text/html,application/xhtml+xml,application/xml;q=0.9,'
           'image/avif,image/webp,*/*;q=0.8';
       request.headers.addAll(headers ?? const {});
-      if (_cookies.isNotEmpty) {
+      // Session-Cookies nur an den IServ-Host schicken – Redirects auf
+      // fremde Hosts dürfen die Session nicht mitbekommen.
+      final sameHost = _isIservHost(current);
+      if (_cookies.isNotEmpty && sameHost) {
         request.headers['cookie'] = _cookieHeader();
       }
       if (requestForm != null) {
@@ -129,9 +134,10 @@ class IservSession {
             .join('&');
       }
 
-      final streamed = await _client.send(request);
-      final response = await http.Response.fromStream(streamed);
-      _captureCookies(response.headers['set-cookie']);
+      final response = await sendWithTimeout(_client, request);
+      if (sameHost) {
+        _captureCookies(response.headers['set-cookie']);
+      }
 
       requestLog.add(
         '[$i] $requestMethod ${response.statusCode} '
@@ -185,6 +191,22 @@ class IservSession {
       return response;
     }
     throw const IservException('Zu viele Redirects beim IServ-Abruf');
+  }
+
+  /// Aktuelle Session-Cookies (z. B. für die In-App-Ansicht von IServ).
+  Map<String, String> get cookies => Map.unmodifiable(_cookies);
+
+  /// Gehört [url] zu diesem IServ (gleicher Host und Schema)?
+  bool isIservUrl(String url) {
+    final uri = Uri.tryParse(url);
+    return uri != null && _isIservHost(uri);
+  }
+
+  /// Gleicher Host und gleiches Schema wie [baseUrl].
+  bool _isIservHost(Uri uri) {
+    final base = Uri.parse(baseUrl);
+    return uri.host.toLowerCase() == base.host.toLowerCase() &&
+        uri.scheme == base.scheme;
   }
 
   static bool _isRedirect(int status) =>

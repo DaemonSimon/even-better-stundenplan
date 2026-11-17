@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../services/session_manager.dart';
 
@@ -57,8 +58,11 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
             const SizedBox(height: 16),
             SizedBox(
               width: screenWidth - 32,
+              // AutofillGroup: Passwortmanager erkennen E-Mail + Passwort
+              // als zusammengehöriges Login und bieten Ausfüllen/Speichern an.
               child: Form(
                 key: _formKey,
+                child: AutofillGroup(
                 child: Column(
                   children: <Widget>[
                     TextFormField(
@@ -66,6 +70,13 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
                         labelText: 'E-Mail',
                         border: const OutlineInputBorder(),
                       ),
+                      autofillHints: const [
+                        AutofillHints.email,
+                        AutofillHints.username,
+                      ],
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autocorrect: false,
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Bitte geben Sie eine E-Mail-Adresse ein';
@@ -81,6 +92,9 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
                         border: const OutlineInputBorder(),
                       ),
                       obscureText: true,
+                      autofillHints: const [AutofillHints.password],
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _submitForm(),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Bitte geben Sie ein Passwort ein';
@@ -111,6 +125,7 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
                     ),
                   ],
                 ),
+                ),
               ),
             ),
           ],
@@ -129,6 +144,8 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
       password: _password,
     );
     if (success) {
+      // Login hat geklappt: Passwortmanager darf die Daten speichern.
+      TextInput.finishAutofillContext();
       if (!mounted) return;
       context.pushReplacement('/');
       return;

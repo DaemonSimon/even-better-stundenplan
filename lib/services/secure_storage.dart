@@ -27,13 +27,17 @@ class SecureCredentialStorage implements CredentialStorage {
   static const String _emailKey = 'email';
   static const String _passwordKey = 'password';
 
-  // Schlüssel der alten SharedPreferences-Ablage (inkl. Tippfehler-Variante)
-  static const List<String> _legacyPrefsKeys = [
-    'sessionId',
-    'email',
-    'password',
-    'passowrd',
-  ];
+  // Schlüssel der alten SharedPreferences-Ablage -> neuer Schlüssel.
+  // Die Tippfehler-Variante steht zuerst, damit ein korrekt benannter
+  // Eintrag gewinnt.
+  static const Map<String, String> _legacyPrefsKeys = {
+    _legacyPasswordKey: _passwordKey,
+    'sessionId': _sessionKey,
+    'email': _emailKey,
+    'password': _passwordKey,
+  };
+
+  static const String _legacyPasswordKey = 'passowrd';
 
   @override
   Future<String?> getSessionId() => _storage.read(key: _sessionKey);
@@ -68,12 +72,23 @@ class SecureCredentialStorage implements CredentialStorage {
   /// verschlüsselte Ablage und löscht sie anschließend dort.
   Future<void> migrateFromSharedPreferences() async {
     try {
+      // Frühere Migrationen haben das Passwort unter dem Tippfehler-
+      // Schlüssel in die sichere Ablage geschrieben – dorthin umziehen.
+      final misplaced = await _storage.read(key: _legacyPasswordKey);
+      if (misplaced != null && misplaced.isNotEmpty) {
+        final current = await _storage.read(key: _passwordKey);
+        if (current == null || current.isEmpty) {
+          await _storage.write(key: _passwordKey, value: misplaced);
+        }
+        await _storage.delete(key: _legacyPasswordKey);
+      }
+
       final prefs = await SharedPreferences.getInstance();
-      for (final key in _legacyPrefsKeys) {
-        final value = prefs.getString(key);
+      for (final entry in _legacyPrefsKeys.entries) {
+        final value = prefs.getString(entry.key);
         if (value != null && value.isNotEmpty) {
-          await _storage.write(key: key, value: value);
-          await prefs.remove(key);
+          await _storage.write(key: entry.value, value: value);
+          await prefs.remove(entry.key);
         }
       }
     } catch (_) {

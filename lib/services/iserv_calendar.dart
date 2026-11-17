@@ -13,6 +13,7 @@ class IservCalendarEvent {
     required this.start,
     this.end,
     this.description = '',
+    this.calendar = '',
   });
 
   final String id;
@@ -20,6 +21,15 @@ class IservCalendarEvent {
   final DateTime start;
   final DateTime? end;
   final String description;
+
+  /// Name des IServ-Kalenders (z. B. "Klausurplan"), falls bekannt.
+  final String calendar;
+
+  /// Klausur: Titel oder Kalendername enthält "Klausur"
+  /// (z. B. "Klausur Deutsch (Klausur) - ITA26-1" im "Klausurplan").
+  bool get isExam =>
+      title.toLowerCase().contains('klausur') ||
+      calendar.toLowerCase().contains('klausur');
 
   bool occursOn(DateTime day) =>
       start.year == day.year &&
@@ -32,6 +42,7 @@ class IservCalendarEvent {
     'start': start.toIso8601String(),
     'end': end?.toIso8601String(),
     'description': description,
+    'calendar': calendar,
   };
 
   factory IservCalendarEvent.fromJson(Map<String, dynamic> json) =>
@@ -43,6 +54,7 @@ class IservCalendarEvent {
             ? null
             : DateTime.parse(json['end'] as String),
         description: json['description'] as String? ?? '',
+        calendar: json['calendar'] as String? ?? '',
       );
 }
 
@@ -193,8 +205,14 @@ Future<List<IservCalendarEvent>?> _fetchCalendarSources(
     try {
       final feedPayload = jsonDecode(feed.body);
       final sourceId = (item['id'] ?? item['label'] ?? rawUrl).toString();
+      final calendarName =
+          (item['label'] ?? item['title'] ?? item['name'] ?? '').toString();
       successfulFeedCount++;
-      for (final event in parseIservCalendarJson(feedPayload, idPrefix: sourceId)) {
+      for (final event in parseIservCalendarJson(
+        feedPayload,
+        idPrefix: sourceId,
+        calendar: calendarName,
+      )) {
         events[event.id] = event;
       }
     } on FormatException {
@@ -237,20 +255,20 @@ Uri? _calendarSourceUri(Uri base, String rawUrl) {
 List<IservCalendarEvent> parseIservCalendarJson(
   dynamic payload, {
   String idPrefix = '',
+  String calendar = '',
 }) {
   final events = <String, IservCalendarEvent>{};
   _collectJsonEvents(payload, events);
   final values = events.values
       .map(
-        (event) => idPrefix.isEmpty
-            ? event
-            : IservCalendarEvent(
-                id: '$idPrefix:${event.id}',
-                title: event.title,
-                start: event.start,
-                end: event.end,
-                description: event.description,
-              ),
+        (event) => IservCalendarEvent(
+          id: idPrefix.isEmpty ? event.id : '$idPrefix:${event.id}',
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          description: event.description,
+          calendar: calendar,
+        ),
       )
       .toList();
   return values..sort((a, b) => a.start.compareTo(b.start));
