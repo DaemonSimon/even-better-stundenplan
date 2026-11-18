@@ -87,7 +87,7 @@ class IservCalendarStore {
 Future<List<IservCalendarEvent>> fetchIservCalendar(
   IservSession session,
 ) async {
-  if (!await session.isAuthenticated()) {
+  if (!await session.ensureAuthenticated()) {
     throw const IservLoginException('Bitte zuerst bei IServ anmelden');
   }
 

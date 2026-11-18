@@ -181,7 +181,7 @@ class _IservTasksViewState extends State<IservTasksView>
       for (final task in expired) {
         await HomeworkAttachments.deleteOwned(task.imagePaths);
       }
-      final authenticated = await _session.isAuthenticated();
+      final authenticated = await _session.ensureAuthenticated();
       List<IservTask> iservTasks = const <IservTask>[];
       List<IservTask> pastTasks = const <IservTask>[];
       if (authenticated) {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,12 +22,55 @@ class IservLoginException extends IservException {
   const IservLoginException(super.message);
 }
 
+/// Verschlüsselte Ablage der IServ-Zugangsdaten (Android Keystore),
+/// damit die App sich nach Ablauf der Session still neu anmelden kann.
+class IservCredentialStore {
+  IservCredentialStore({FlutterSecureStorage? storage})
+    : _storage = storage ?? const FlutterSecureStorage();
+
+  final FlutterSecureStorage _storage;
+
+  static const _userKey = 'iserv_username';
+  static const _passwordKey = 'iserv_password';
+
+  Future<({String username, String password})?> read() async {
+    try {
+      final user = await _storage.read(key: _userKey);
+      final password = await _storage.read(key: _passwordKey);
+      if (user == null || user.isEmpty || password == null) return null;
+      return (username: user, password: password);
+    } catch (_) {
+      return null; // z. B. in Tests ohne Plugin
+    }
+  }
+
+  Future<void> save(String username, String password) async {
+    try {
+      await _storage.write(key: _userKey, value: username);
+      await _storage.write(key: _passwordKey, value: password);
+    } catch (_) {}
+  }
+
+  Future<void> clear() async {
+    try {
+      await _storage.delete(key: _userKey);
+      await _storage.delete(key: _passwordKey);
+    } catch (_) {}
+  }
+}
+
 /// Cookie-basierte IServ-Session direkt in der App.
 ///
 /// Der Login folgt den Redirects manuell, sammelt dabei die Session-Cookies
 /// (Set-Cookie-Header) und schickt sie bei jedem Folge-Request mit.
 /// Die Cookies werden in SharedPreferences gespeichert, damit die Session
-/// einen App-Neustart überlebt.
+/// einen App-Neustart überlebt – nach jeder Anfrage, weil IServ die
+/// Cookies während der Nutzung erneuert. Mehrere Instanzen (Kalender,
+/// Aufgaben) lesen vor jeder Anfrage den neuesten gespeicherten Stand,
+/// damit keine die erneuerten Cookies einer anderen mit alten überschreibt.
+///
+/// Ist die Session trotzdem abgelaufen, meldet [ensureAuthenticated] mit
+/// den gespeicherten Zugangsdaten still neu an.
 ///
 /// Unterstützt sowohl ältere IServ-Versionen mit CSRF-`_token` als auch
 /// neuere (OAuth2-/`/iserv/auth/login`-basiert) ohne Token.
@@ -34,14 +78,24 @@ class IservSession {
   IservSession({
     http.Client? client,
     this.baseUrl = 'https://bbs-papenburg.eu/iserv',
-  }) : _client = client ?? http.Client();
+    IservCredentialStore? credentials,
+  }) : _client = client ?? http.Client(),
+       _credentials = credentials ?? IservCredentialStore();
 
   static const String _prefsKey = 'iserv_cookies';
 
   final http.Client _client;
   final String baseUrl;
 
+  final IservCredentialStore _credentials;
+
   final Map<String, String> _cookies = {};
+
+  /// Diese Instanz nutzt die gespeicherten Cookies (nach [restore]).
+  bool _usesStore = false;
+
+  /// Läuft gerade eine stille Neuanmeldung? (nur eine gleichzeitig)
+  Future<bool>? _reloginInFlight;
 
   /// Wird erhöht, wenn sich jemand (z. B. in den Einstellungen) von IServ
   /// abmeldet, damit offene Ansichten ihre Session ebenfalls verwerfen.
@@ -54,9 +108,12 @@ class IservSession {
   final List<String> requestLog = [];
 
   Future<void> restore() async {
+    _usesStore = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
+      // Woanders abgemeldet: auch hier keine Cookies mehr verwenden.
+      if (raw == null || raw.isEmpty) _cookies.clear();
       if (raw != null && raw.isNotEmpty) {
         final data = jsonDecode(raw) as Map<String, dynamic>;
         _cookies
@@ -81,6 +138,12 @@ class IservSession {
     }
   }
 
+  /// Vor einer Anfrage den neuesten gespeicherten Cookie-Stand laden
+  /// (andere Instanzen könnten ihn inzwischen erneuert haben).
+  Future<void> _syncFromStore() async {
+    if (_usesStore) await restore();
+  }
+
   Future<void> _persist() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -91,6 +154,7 @@ class IservSession {
   }
 
   Future<void> clear() async {
+    _reloginInFlight = null;
     _cookies.clear();
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -105,6 +169,22 @@ class IservSession {
       path.startsWith('/') ? Uri.parse('$baseUrl$path') : Uri.parse(path);
 
   Future<http.Response> _request(
+    String method,
+    Uri uri, {
+    Map<String, String>? headers,
+    Map<String, String>? form,
+  }) async {
+    final before = _cookieHeader();
+    try {
+      return await _requestChain(method, uri, headers: headers, form: form);
+    } finally {
+      // Erneuerte Cookies sofort sichern, sonst gilt nach einem
+      // App-Neustart wieder der alte (abgelaufene) Stand.
+      if (_usesStore && _cookieHeader() != before) await _persist();
+    }
+  }
+
+  Future<http.Response> _requestChain(
     String method,
     Uri uri, {
     Map<String, String>? headers,
@@ -316,6 +396,7 @@ class IservSession {
   /// gültige Session das Login-Formular, mit gültiger Session die
   /// Dashboard-Seite. Wirft [IservException] bei Netzwerkfehlern.
   Future<bool> isAuthenticated() async {
+    await _syncFromStore();
     try {
       final response = await _request('GET', _resolve('/'));
       final ok = response.statusCode == 200 && !_hasLoginForm(response.body);
@@ -402,7 +483,31 @@ class IservSession {
     // gelandet sind – NICHT über /tasks prüfen (existiert auf manchen
     // IServ-Versionen nicht und würde einen Erfolg als Fehler melden).
     await _persist();
+    // Für die stille Neuanmeldung merken.
+    await _credentials.save(username.trim(), password);
     return true;
+  }
+
+  /// Wie [isAuthenticated], meldet bei abgelaufener Session aber mit den
+  /// gespeicherten Zugangsdaten still neu an. `false` nur, wenn keine
+  /// Zugangsdaten gespeichert sind oder IServ sie ablehnt.
+  Future<bool> ensureAuthenticated() async {
+    if (await isAuthenticated()) return true;
+    return _reloginInFlight ??= _relogin().whenComplete(
+      () => _reloginInFlight = null,
+    );
+  }
+
+  Future<bool> _relogin() async {
+    final saved = await _credentials.read();
+    if (saved == null) return false;
+    try {
+      return await login(saved.username, saved.password);
+    } on IservLoginException catch (exc) {
+      // Passwort geändert o. Ä.: nicht endlos neu versuchen.
+      if (exc.message.contains('abgelehnt')) await _credentials.clear();
+      return false;
+    }
   }
 
   Future<void> logout() async {
@@ -412,9 +517,13 @@ class IservSession {
       // Server nicht erreichbar – lokale Cookies trotzdem löschen.
     }
     await clear();
+    await _credentials.clear();
   }
 
-  Future<http.Response> get(String path) => _request('GET', _resolve(path));
+  Future<http.Response> get(String path) async {
+    await _syncFromStore();
+    return _request('GET', _resolve(path));
+  }
 
   /// Sammelt alle absoluten Modul-Links der Dashboard-Seite (für
   /// Modul-Suche und Debug-Ausgaben). Leer, wenn die Navigation per JS

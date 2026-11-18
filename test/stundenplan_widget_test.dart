@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -120,6 +121,8 @@ void main() {
   });
 
   setUp(() async {
+    // Kein echter Keystore in Tests: keine gespeicherten IServ-Zugangsdaten.
+    FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
     final storage = InMemoryCredentialStorage()..sessionId = 'valid-session';
     sessionManager = SessionManager(
