@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/app_settings.dart';
 import '../services/homework_reminders.dart';
@@ -62,10 +63,23 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
   bool _loading = true;
   bool _iservLoggedIn = false;
 
+  /// Installierte App-Version, z. B. "1.4.1".
+  String? _version;
+
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _version = info.version);
+    } catch (_) {
+      // Ohne Version einfach nichts anzeigen.
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -373,6 +387,17 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
                     label: const Text('Vom Stundenplan abmelden'),
                   ),
                 ],
+              ],
+              if (_version != null) ...[
+                const SizedBox(height: 24),
+                Center(
+                  child: Text(
+                    'Version $_version',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cardGrey,
+                    ),
+                  ),
+                ),
               ],
             ],
           ),

@@ -83,6 +83,13 @@ class IservSession {
        _credentials = credentials ?? IservCredentialStore();
 
   static const String _prefsKey = 'iserv_cookies';
+  static const String _reloginPauseKey = 'iserv_relogin_paused_until';
+  static const String _reloginErrorKey = 'iserv_relogin_last_error';
+
+  /// Nach einer abgelehnten stillen Anmeldung so lange warten, bevor es
+  /// erneut versucht wird (schützt vor einer Kontosperre bei geändertem
+  /// Passwort, gibt aber nach einem Server-Ausfall nicht auf).
+  static const Duration reloginPause = Duration(minutes: 30);
 
   final http.Client _client;
   final String baseUrl;
@@ -485,6 +492,7 @@ class IservSession {
     await _persist();
     // Für die stille Neuanmeldung merken.
     await _credentials.save(username.trim(), password);
+    await _resetReloginState();
     return true;
   }
 
@@ -501,14 +509,60 @@ class IservSession {
   Future<bool> _relogin() async {
     final saved = await _credentials.read();
     if (saved == null) return false;
+    final prefs = await _prefs();
+    final pausedUntil = prefs?.getInt(_reloginPauseKey) ?? 0;
+    if (DateTime.now().millisecondsSinceEpoch < pausedUntil) return false;
     try {
       return await login(saved.username, saved.password);
     } on IservLoginException catch (exc) {
-      // Passwort geändert o. Ä.: nicht endlos neu versuchen.
-      if (exc.message.contains('abgelehnt')) await _credentials.clear();
+      // Abgelehnt – kann ein geändertes Passwort sein, aber auch ein
+      // IServ-Ausfall (Weiterleitungsschleifen, 401/403). Zugangsdaten
+      // deshalb behalten und erst nach einer Pause erneut versuchen.
+      await _rememberReloginFailure(prefs, exc.message, pause: true);
       return false;
+    } on IservException catch (exc) {
+      await _rememberReloginFailure(prefs, exc.message, pause: false);
+      rethrow;
     }
   }
+
+  static Future<SharedPreferences?> _prefs() async {
+    try {
+      return await SharedPreferences.getInstance();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _rememberReloginFailure(
+    SharedPreferences? prefs,
+    String message, {
+    required bool pause,
+  }) async {
+    if (prefs == null) return;
+    final now = DateTime.now();
+    final time =
+        '${now.day}.${now.month}. ${now.hour.toString().padLeft(2, '0')}:'
+        '${now.minute.toString().padLeft(2, '0')}';
+    await prefs.setString(_reloginErrorKey, '$time – $message');
+    if (pause) {
+      await prefs.setInt(
+        _reloginPauseKey,
+        now.add(reloginPause).millisecondsSinceEpoch,
+      );
+    }
+  }
+
+  static Future<void> _resetReloginState() async {
+    final prefs = await _prefs();
+    await prefs?.remove(_reloginPauseKey);
+    await prefs?.remove(_reloginErrorKey);
+  }
+
+  /// Warum die letzte automatische Anmeldung fehlgeschlagen ist (mit
+  /// Uhrzeit), oder `null`, wenn es keinen Fehler gab.
+  static Future<String?> lastReloginError() async =>
+      (await _prefs())?.getString(_reloginErrorKey);
 
   Future<void> logout() async {
     try {
@@ -518,6 +572,7 @@ class IservSession {
     }
     await clear();
     await _credentials.clear();
+    await _resetReloginState();
   }
 
   Future<http.Response> get(String path) async {

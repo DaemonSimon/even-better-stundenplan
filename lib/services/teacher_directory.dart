@@ -62,7 +62,7 @@ class TeacherDirectory {
       ).origin;
 
   static const String _userAgent =
-      'BetterStundenplan/1.4.1 (+https://github.com/LarvenStein/better-stundenplan)';
+      'BetterStundenplan/1.4.2 (+https://github.com/LarvenStein/better-stundenplan)';
 
   final http.Client _client;
   final String _baseUrl;

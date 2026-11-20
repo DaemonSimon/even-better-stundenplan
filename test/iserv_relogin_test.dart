@@ -20,6 +20,9 @@ const _loginPage = '''
 /// ID aus (wie IServ bei der Erneuerung).
 class _FakeIserv {
   String password = 'geheim';
+
+  /// Simuliert einen IServ-Ausfall: jede Anmeldung wird abgewiesen.
+  bool outage = false;
   String? validSid;
   bool rotate = false;
   int logins = 0;
@@ -36,7 +39,7 @@ class _FakeIserv {
     }
     if (path.endsWith('/login') && request.method == 'POST') {
       final fields = Uri.splitQueryString(request.body);
-      if (fields['_password'] != password) {
+      if (outage || fields['_password'] != password) {
         return http.Response('denied', 403);
       }
       logins++;
@@ -109,16 +112,33 @@ void main() {
     expect(await session.isAuthenticated(), isTrue);
   });
 
-  test('changed password stops the silent login', () async {
+  test('a rejected login pauses retries instead of hammering IServ', () async {
     final session = await restored();
     await session.login('schueler', 'geheim');
     server.validSid = 'expired-on-server';
     server.password = 'neu';
 
     expect(await session.ensureAuthenticated(), isFalse);
-    // Zugangsdaten wurden verworfen: kein weiterer Versuch.
+    expect(await IservSession.lastReloginError(), contains('abgelehnt'));
+    // Pause läuft: kein zweiter Anmeldeversuch.
     expect(await session.ensureAuthenticated(), isFalse);
     expect(server.logins, 1);
+  });
+
+  test('an IServ outage does not lose the saved login', () async {
+    final session = await restored();
+    await session.login('schueler', 'geheim');
+    server.validSid = 'expired-on-server';
+
+    server.outage = true;
+    expect(await session.ensureAuthenticated(), isFalse);
+
+    // Server wieder da, Pause vorbei: still wieder angemeldet.
+    server.outage = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('iserv_relogin_paused_until', 0);
+    expect(await session.ensureAuthenticated(), isTrue);
+    expect(await IservSession.lastReloginError(), isNull);
   });
 
   test('logout forgets the saved login', () async {

@@ -67,6 +67,9 @@ class _IservTasksViewState extends State<IservTasksView>
   final _passwordController = TextEditingController();
   String? _loginError;
 
+  /// Letzter Fehler der automatischen IServ-Anmeldung (zur Fehlersuche).
+  String? _reloginError;
+
   @override
   void initState() {
     super.initState();
@@ -182,6 +185,9 @@ class _IservTasksViewState extends State<IservTasksView>
         await HomeworkAttachments.deleteOwned(task.imagePaths);
       }
       final authenticated = await _session.ensureAuthenticated();
+      final reloginError = authenticated
+          ? null
+          : await IservSession.lastReloginError();
       List<IservTask> iservTasks = const <IservTask>[];
       List<IservTask> pastTasks = const <IservTask>[];
       if (authenticated) {
@@ -211,6 +217,7 @@ class _IservTasksViewState extends State<IservTasksView>
       );
       if (!mounted) return;
       setState(() {
+        _reloginError = reloginError;
         _iservAuthenticated = authenticated;
         _showLoginForm = false;
         _tasks = merged;
@@ -543,12 +550,27 @@ class _IservTasksViewState extends State<IservTasksView>
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        'Nicht bei IServ angemeldet – IServ-Aufgaben werden '
-                        'erst nach der Anmeldung angezeigt.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSecondaryContainer,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Nicht bei IServ angemeldet – IServ-Aufgaben '
+                            'werden erst nach der Anmeldung angezeigt.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSecondaryContainer,
+                            ),
+                          ),
+                          if (_reloginError != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Automatische Anmeldung fehlgeschlagen: '
+                              '$_reloginError',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSecondaryContainer,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     TextButton(

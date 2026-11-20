@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:better_stundenplan/components/class_card.dart';
@@ -421,6 +422,40 @@ void main() {
 
     expect(loggedOut, 1);
     expect(find.text('Einstellungen'), findsNothing); // Sheet geschlossen
+  });
+
+  testWidgets('settings sheet shows the installed app version', (
+    tester,
+  ) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Better Stundenplan',
+      packageName: 'in.eike.better_stundenplan',
+      version: '9.8.7',
+      buildNumber: '42',
+      buildSignature: '',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showGroupSettingsSheet(
+                context,
+                group: null,
+                onChanged: (_) {},
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final version = find.text('Version 9.8.7');
+    await tester.scrollUntilVisible(version, 100);
+    expect(version, findsOneWidget);
   });
 
   testWidgets('tapping the teacher name opens the teacher photo dialog', (
