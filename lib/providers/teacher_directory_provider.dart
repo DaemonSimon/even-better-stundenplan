@@ -67,6 +67,10 @@ class TeacherDirectoryProvider extends ChangeNotifier {
 
     try {
       final fresh = await _directory.fetch();
+      // Leeres Ergebnis bei vorhandenen Einträgen heißt fast immer: Die
+      // Seite wurde umgebaut und der Parser erkennt sie nicht mehr. Dann
+      // den letzten bekannten Stand behalten statt alle Namen zu verlieren.
+      if (fresh.isEmpty && _entries.isNotEmpty) return;
       _entries = fresh;
       await _saveToDisk(fresh);
       notifyListeners();

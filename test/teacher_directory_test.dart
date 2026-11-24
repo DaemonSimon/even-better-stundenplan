@@ -47,10 +47,32 @@ void main() {
       expect(antons?.photoUrl, 'https://cdn.example.org/extern.jpg');
     });
 
+    test('liest das neue Layout der Kollegiums-Seite (11/2026)', () {
+      final entries = TeacherDirectory.parse(
+        File('test/fixtures/kollegium_2026.html').readAsStringSync(),
+        origin: 'https://start.bbs-papenburg.de',
+      );
+
+      // Nina Neu hat kein Kürzel und wird übersprungen.
+      expect(entries.keys, unorderedEquals(['BEBS', 'MUCL']));
+      expect(entries['BEBS']!.fullName, 'Bernd Beispiel');
+      expect(
+        entries['BEBS']!.photoUrl,
+        'https://start.bbs-papenburg.de/images/Organisation_Dateien/'
+        'kollegium/Beispiel_Bernd.jpg',
+      );
+      // Ohne Foto (nur Platzhalter-Symbol) keine Foto-URL.
+      expect(entries['MUCL']!.fullName, 'Clara Muster');
+      expect(entries['MUCL']!.photoUrl, isNull);
+    });
+
     test('ignoriert Karten ohne Kürzel', () {
       final entries = TeacherDirectory.parse(kollegiumHtml);
       expect(entries.containsKey('ATWT'), isTrue);
-      expect(entries.values.where((e) => e.fullName.contains('Ameln')), isEmpty);
+      expect(
+        entries.values.where((e) => e.fullName.contains('Ameln')),
+        isEmpty,
+      );
     });
 
     test('leere Kürzel ergeben keinen Eintrag', () {
@@ -70,10 +92,7 @@ void main() {
             fullName: 'Thomas Abbes',
             photoUrl: 'https://start.bbs-papenburg.de/abbes.jpg',
           ),
-          'KREP': TeacherEntry(
-            kuerzel: 'KREP',
-            fullName: 'Maren Krep',
-          ),
+          'KREP': TeacherEntry(kuerzel: 'KREP', fullName: 'Maren Krep'),
         },
       );
 
@@ -101,8 +120,10 @@ void main() {
 
       expect(provider.resolve('A:KREP'), 'A: Maren Krep');
       expect(provider.lookup('A:KREP')?.fullName, 'Maren Krep');
-      expect(provider.lookup('A:KREP')?.photoUrl,
-          'https://start.bbs-papenburg.de/krep.jpg');
+      expect(
+        provider.lookup('A:KREP')?.photoUrl,
+        'https://start.bbs-papenburg.de/krep.jpg',
+      );
       expect(provider.resolve('A:UNBEKANNT'), 'A:UNBEKANNT');
       expect(provider.resolve('KREP:'), 'KREP:');
       expect(provider.resolve(':KREP'), ':KREP');
@@ -112,7 +133,10 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final html = File('test/fixtures/kollegium.html').readAsStringSync();
       final client = MockClient((request) async {
-        expect(request.url.toString(), 'https://start.bbs-papenburg.de/kollegium.php');
+        expect(
+          request.url.toString(),
+          'https://start.bbs-papenburg.de/kollegium.php',
+        );
         return http.Response(html, 200);
       });
 
@@ -129,6 +153,29 @@ void main() {
       expect(cached, contains('Hermann-Josef Ahrens'));
       expect(cached, contains('Abbes_Thomas.jpg'));
     });
+
+    test(
+      'behält den Cache, wenn die Seite keine Lehrkräfte mehr liefert',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'teacher_directory_cache':
+              '[{"k":"ATWT","n":"Thomas Abbes","p":null}]',
+        });
+        // Umgebaute Seite, die der Parser nicht erkennt.
+        final client = MockClient(
+          (_) async => http.Response('<html><body>Neu!</body></html>', 200),
+        );
+
+        final provider = TeacherDirectoryProvider(
+          directory: TeacherDirectory(client: client),
+        );
+        await provider.load();
+
+        expect(provider.resolve('ATWT'), 'Thomas Abbes');
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('teacher_directory_cache'), contains('Abbes'));
+      },
+    );
 
     test('fällt bei Netzwerkfehler auf den Platten-Cache zurück', () async {
       SharedPreferences.setMockInitialValues({

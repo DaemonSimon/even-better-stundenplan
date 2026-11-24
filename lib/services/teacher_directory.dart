@@ -1,3 +1,4 @@
+import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 
@@ -62,7 +63,7 @@ class TeacherDirectory {
       ).origin;
 
   static const String _userAgent =
-      'BetterStundenplan/1.4.2 (+https://github.com/LarvenStein/better-stundenplan)';
+      'BetterStundenplan/1.4.3 (+https://github.com/LarvenStein/better-stundenplan)';
 
   final http.Client _client;
   final String _baseUrl;
@@ -83,36 +84,55 @@ class TeacherDirectory {
     return parse(response.body, origin: _origin);
   }
 
-  /// Parst die Kollegiums-Seite: Karten mit Namen (h3),
-  /// "Kürzel: <strong>..." und Portrait-Foto (img src).
-  static Map<String, TeacherEntry> parse(String htmlString, {String origin = ''}) {
+  /// Parst die Kollegiums-Seite. Unterstützt das aktuelle Layout
+  /// (`article.bb-person` mit `<span class="kol-kuerzel">`, seit 11/2026)
+  /// und das alte (`.lehrer-card` mit "Kürzel: <strong>…").
+  static Map<String, TeacherEntry> parse(
+    String htmlString, {
+    String origin = '',
+  }) {
     final entries = <String, TeacherEntry>{};
     final document = html.parse(htmlString);
 
-    for (final card in document.querySelectorAll('.lehrer-card')) {
+    for (final card in document.querySelectorAll(
+      '.bb-person, [data-bb-eintrag], .lehrer-card',
+    )) {
       final name = card.querySelector('h3')?.text.trim() ?? '';
       if (name.isEmpty) continue;
 
-      String? kuerzel;
-      for (final paragraph in card.querySelectorAll('p')) {
-        if (paragraph.text.contains('Kürzel')) {
-          kuerzel = paragraph.querySelector('strong')?.text.trim();
-          break;
-        }
-      }
+      final kuerzel = _kuerzelOf(card);
       if (kuerzel == null || kuerzel.isEmpty) continue;
 
       final src = card.querySelector('img')?.attributes['src']?.trim() ?? '';
       final photoUrl = src.isEmpty ? null : _absoluteUrl(origin, src);
 
-      entries[kuerzel.toUpperCase()] = TeacherEntry(
-        kuerzel: kuerzel,
-        fullName: name,
-        photoUrl: photoUrl,
+      entries.putIfAbsent(
+        kuerzel.toUpperCase(),
+        () =>
+            TeacherEntry(kuerzel: kuerzel, fullName: name, photoUrl: photoUrl),
       );
     }
 
     return entries;
+  }
+
+  /// Kürzel einer Karte: eigenes Element, sonst "Kürzel: <strong>…",
+  /// sonst die Element-ID (`kuerzel-ATWT`).
+  static String? _kuerzelOf(Element card) {
+    final tagged = card.querySelector('.kol-kuerzel')?.text.trim();
+    if (tagged != null && tagged.isNotEmpty) return tagged;
+
+    for (final paragraph in card.querySelectorAll('p')) {
+      if (!paragraph.text.contains('Kürzel')) continue;
+      final marked = paragraph.querySelector('strong, span, b')?.text.trim();
+      if (marked != null && marked.isNotEmpty) return marked;
+      final match = RegExp(r'Kürzel:\s*(\S+)').firstMatch(paragraph.text);
+      if (match != null) return match.group(1);
+    }
+
+    final id = card.id;
+    if (id.startsWith('kuerzel-') && id.length > 8) return id.substring(8);
+    return null;
   }
 
   /// Macht aus einem relativen Pfad (z. B. "images/.../x.jpg") eine
