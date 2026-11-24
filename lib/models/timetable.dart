@@ -124,7 +124,9 @@ class LessonBlock {
   final List<LessonEntry> periods;
 
   /// Erste Stunde der Einheit (z. B. 7 bei "7+8").
-  int get firstPeriod => periods.isEmpty ? 0 : periods.first.period;
+  int get firstPeriod => periods.isEmpty
+      ? 0
+      : periods.map((p) => p.period).reduce((a, b) => a < b ? a : b);
 
   bool get hasSubstitution => periods.any((p) => p.isSubstitution);
 

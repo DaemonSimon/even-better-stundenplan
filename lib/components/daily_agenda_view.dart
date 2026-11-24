@@ -589,48 +589,52 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
   /// Baut aus den Perioden eines Blocks die zusammengefassten
   /// [LessonBlock]e. Doppelstunden werden anhand von Fach + Gruppe
   /// zusammengeführt, nicht anhand strikt identischer Einträge.
+  /// Mehrere Lehrkräfte im selben Raum und Fach (Teamteaching) bilden
+  /// EINEN Block.
   List<LessonBlock> _buildBlocks(Map<int, TimeSlot> slots, List<int> periods) {
-    final lessons1 = _nonEmptyLessonsOf(slots, periods.first);
-    final lessons2 = periods.length > 1
-        ? _nonEmptyLessonsOf(slots, periods[1])
-        : const <LessonEntry>[];
+    final units1 = _unitsOf(slots, periods.first);
+    final units2 = periods.length > 1
+        ? _unitsOf(slots, periods[1])
+        : const <List<LessonEntry>>[];
 
     final blocks = <LessonBlock>[];
-    final used2 = List<bool>.filled(lessons2.length, false);
+    final used2 = List<bool>.filled(units2.length, false);
 
-    for (final l1 in lessons1) {
-      LessonEntry? match;
-      for (int j = 0; j < lessons2.length; j++) {
-        if (!used2[j] && _sameCourseGroup(l1, lessons2[j])) {
-          match = lessons2[j];
+    for (final u1 in units1) {
+      List<LessonEntry>? match;
+      for (int j = 0; j < units2.length; j++) {
+        if (!used2[j] && _sameUnit(u1, units2[j])) {
+          match = units2[j];
           used2[j] = true;
           break;
         }
       }
-      blocks.add(
-        LessonBlock(
-          subject: l1.lesson.trim(),
-          room: l1.room.trim(),
-          group: _groupOf(l1),
-          periods: match == null ? [l1] : [l1, match],
-        ),
-      );
+      blocks.add(_blockOf([...u1, ...?match]));
     }
 
     // Einzelne Stunden der zweiten Periodenhälfte (erste ist frei).
-    for (int j = 0; j < lessons2.length; j++) {
-      if (used2[j]) continue;
-      final l2 = lessons2[j];
-      blocks.add(
-        LessonBlock(
-          subject: l2.lesson.trim(),
-          room: l2.room.trim(),
-          group: _groupOf(l2),
-          periods: [l2],
-        ),
-      );
+    for (int j = 0; j < units2.length; j++) {
+      if (!used2[j]) blocks.add(_blockOf(units2[j]));
     }
     return blocks;
+  }
+
+  /// Ein Block aus allen Einträgen eines Unterrichts. Sortiert nach
+  /// Lehrkraft, dann Stunde, damit die Karte je Lehrkraft eine Zeile
+  /// ("7+8. Std") zeigt.
+  LessonBlock _blockOf(List<LessonEntry> entries) {
+    final first = entries.first;
+    final sorted = [...entries]
+      ..sort((a, b) {
+        final byTeacher = a.teacher.compareTo(b.teacher);
+        return byTeacher != 0 ? byTeacher : a.period.compareTo(b.period);
+      });
+    return LessonBlock(
+      subject: first.lesson.trim(),
+      room: first.room.trim(),
+      group: _groupOf(first),
+      periods: sorted,
+    );
   }
 
   List<LessonEntry> _nonEmptyLessonsOf(Map<int, TimeSlot> slots, int period) {
@@ -639,18 +643,44 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     return _nonEmptyLessons(slot);
   }
 
+  /// Unterrichte einer Stunde: Einträge mit gleichem Raum, Fach und Gruppe
+  /// (z. B. zwei Lehrkräfte im Teamteaching) werden zusammengefasst.
+  List<List<LessonEntry>> _unitsOf(Map<int, TimeSlot> slots, int period) {
+    final units = <List<LessonEntry>>[];
+    for (final lesson in _nonEmptyLessonsOf(slots, period)) {
+      final team = units.where((u) => _sameTeam(u.first, lesson));
+      if (team.isNotEmpty) {
+        team.first.add(lesson);
+      } else {
+        units.add([lesson]);
+      }
+    }
+    return units;
+  }
+
+  static String _subjectKey(LessonEntry e) =>
+      stripGroupPrefix(e.lesson).trim().toLowerCase();
+
+  static bool _sameTeam(LessonEntry a, LessonEntry b) {
+    final room = a.room.trim();
+    return room.isNotEmpty &&
+        room == b.room.trim() &&
+        _subjectKey(a) == _subjectKey(b) &&
+        _groupOf(a) == _groupOf(b);
+  }
+
   /// Sind zwei aufeinanderfolgende Perioden derselbe Kurs (Fach + Gruppe),
   /// werden sie zu einer Doppelstunde zusammengeführt (Regel 4)?
   bool _sameCourseInBoth(Map<int, TimeSlot> slots, int p1, int p2) {
-    final a = _nonEmptyLessonsOf(slots, p1);
-    final b = _nonEmptyLessonsOf(slots, p2);
+    final a = _unitsOf(slots, p1);
+    final b = _unitsOf(slots, p2);
     if (a.isEmpty || b.isEmpty || a.length != b.length) return false;
 
     final used2 = List<bool>.filled(b.length, false);
-    for (final la in a) {
+    for (final ua in a) {
       var found = false;
       for (int j = 0; j < b.length; j++) {
-        if (!used2[j] && _sameCourseGroup(la, b[j])) {
+        if (!used2[j] && _sameUnit(ua, b[j])) {
           used2[j] = true;
           found = true;
           break;
@@ -661,14 +691,22 @@ class _DailyAgendaViewState extends State<DailyAgendaView> {
     return true;
   }
 
-  /// Unterscheiden sich zwei Einträge nur durch Lehrkraft/Raum (z. B.
-  /// wegen einer Vertretung), gehören sie dennoch zum selben Kurs – sie
-  /// werden anhand von Fach + Gruppe zusammengeführt.
-  static bool _sameCourseGroup(LessonEntry a, LessonEntry b) {
-    final sa = stripGroupPrefix(a.lesson).trim().toLowerCase();
-    final sb = stripGroupPrefix(b.lesson).trim().toLowerCase();
-    if (sa.isEmpty || sb.isEmpty) return false;
-    return sa == sb && _groupOf(a) == _groupOf(b);
+  /// Derselbe Unterricht in zwei Stunden? Mit Fach: gleiches Fach + Gruppe
+  /// (Lehrkraft/Raum dürfen wegen Vertretungen abweichen). Ohne Fach:
+  /// gleicher Raum und dieselben (eigentlichen) Lehrkräfte.
+  static bool _sameUnit(List<LessonEntry> a, List<LessonEntry> b) {
+    final x = a.first;
+    final y = b.first;
+    if (_groupOf(x) != _groupOf(y)) return false;
+    final sx = _subjectKey(x);
+    final sy = _subjectKey(y);
+    if (sx.isNotEmpty || sy.isNotEmpty) return sx == sy;
+    final teachersA = {for (final e in a) e.teacher.trim()};
+    final teachersB = {for (final e in b) e.teacher.trim()};
+    return x.room.trim().isNotEmpty &&
+        x.room.trim() == y.room.trim() &&
+        teachersA.length == teachersB.length &&
+        teachersA.containsAll(teachersB);
   }
 
   static String? _groupOf(LessonEntry e) =>
@@ -874,10 +912,8 @@ class _TimeColumn extends StatelessWidget {
                     ),
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => CalendarDayPage(
-                          day: day,
-                          events: dayEvents,
-                        ),
+                        builder: (_) =>
+                            CalendarDayPage(day: day, events: dayEvents),
                       ),
                     ),
                     icon: Icon(

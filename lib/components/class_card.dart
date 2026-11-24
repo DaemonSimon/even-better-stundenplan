@@ -231,12 +231,9 @@ class ClassCard extends StatelessWidget {
                           _name(p.teacher),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: cardGrey,
-                            fontSize: fontSize,
-                          ),
+                          style: TextStyle(color: cardGrey, fontSize: fontSize),
                         ),
-                  ),
+                ),
                 const SizedBox(width: 8),
                 Text(
                   '${periods.map((period) => period.period).join('+')}. Std',
@@ -251,10 +248,12 @@ class ClassCard extends StatelessWidget {
         );
       }
     } else {
-      // Card 1: Normale Stunde – Lehrkraft, dann Raum.
-      final teacher = block.periods.isEmpty
-          ? ''
-          : _name(block.periods.first.teacher);
+      // Card 1: Normale Stunde – Lehrkraft(e), dann Raum. Beim
+      // Teamteaching stehen alle Lehrkräfte nebeneinander.
+      final teacher = {
+        for (final p in block.periods)
+          if (p.teacher.trim().isNotEmpty) _name(p.teacher),
+      }.join(', ');
       if (teacher.isNotEmpty) {
         rows.add(
           Padding(

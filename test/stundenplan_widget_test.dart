@@ -561,6 +561,56 @@ void main() {
     },
   );
 
+  group('team teaching without subject (Do/Fr 7+8)', () {
+    TeacherDirectoryProvider directory() => TeacherDirectoryProvider(
+      initialEntries: const {
+        'SWET': TeacherEntry(kuerzel: 'SWET', fullName: 'Jens Schwede'),
+        'SYEP': TeacherEntry(kuerzel: 'SYEP', fullName: 'Sylvia Eppen'),
+      },
+    );
+
+    testWidgets('two teachers in one room are one 7+8 card', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          fixtureRepository(sessionManager, 'week_team_teaching.html'),
+          day: 3, // Donnerstag
+          teacherDirectory: directory(),
+          clock: () => DateTime(2026, 8, 13, 7),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('7+8'), findsOneWidget);
+      expect(find.text('7'), findsNothing);
+      expect(find.text('8'), findsNothing);
+      // Eine Karte mit beiden Lehrkräften, nicht zwei Karten.
+      expect(find.text('Jens Schwede, Sylvia Eppen'), findsOneWidget);
+      expect(find.text('B004'), findsOneWidget);
+    });
+
+    testWidgets('a substituted team teacher stays in the same 7+8 card', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          fixtureRepository(sessionManager, 'week_team_teaching.html'),
+          day: 4, // Freitag: SYEP wird von SWET vertreten.
+          teacherDirectory: directory(),
+          clock: () => DateTime(2026, 8, 14, 7),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('7+8'), findsOneWidget);
+      expect(find.text('B004'), findsOneWidget);
+      // Je Lehrkraft eine Zeile über beide Stunden.
+      expect(find.text('7+8. Std'), findsNWidgets(2));
+      final struck = tester.widget<Text>(find.text('Sylvia Eppen'));
+      expect(struck.style?.decoration, TextDecoration.lineThrough);
+      expect(find.text('Jens Schwede'), findsNWidgets(2));
+    });
+  });
+
   testWidgets('tapping a substitute in the detail modal opens its photo', (
     tester,
   ) async {
