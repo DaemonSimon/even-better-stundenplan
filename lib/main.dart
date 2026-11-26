@@ -11,6 +11,7 @@ import 'pages/home_page.dart';
 import 'pages/authentication_page.dart';
 import 'pages/welcome_page.dart';
 import 'providers/teacher_directory_provider.dart';
+import 'services/demo_mode.dart';
 import 'services/session_manager.dart';
 import 'services/secure_storage.dart';
 import 'services/teacher_directory.dart';
@@ -29,6 +30,7 @@ void main() async {
   Intl.defaultLocale = 'de_DE';
   await initializeDateFormatting('de_DE');
   await _purgeExpiredHomework();
+  await DemoMode.restore();
   final storage = SecureCredentialStorage();
   await storage.migrateFromSharedPreferences();
   final sessionManager = SessionManager(storage: storage);
@@ -39,6 +41,7 @@ void main() async {
     directory: TeacherDirectory(),
   );
   unawaited(teacherDirectory.load());
+  DemoMode.active.addListener(() => unawaited(teacherDirectory.reset()));
 
   // Willkommensbildschirm nur beim allerersten Start – wer schon
   // angemeldet ist (z. B. nach einem Update), bekommt ihn nicht.
@@ -134,6 +137,18 @@ class _MyAppState extends State<MyApp> {
       builder: (lightColorScheme, darkColorScheme) {
         return MaterialApp.router(
           routerConfig: _router,
+          // Im Demo-Modus deutlich machen, dass die Daten erfunden sind.
+          builder: (context, child) => ValueListenableBuilder<bool>(
+            valueListenable: DemoMode.active,
+            child: child,
+            builder: (context, demo, child) => demo
+                ? Banner(
+                    message: 'DEMO',
+                    location: BannerLocation.topStart,
+                    child: child,
+                  )
+                : child!,
+          ),
           title: "Better Stundenplan",
           // Material-Texte (Datumsauswahl, Tooltips, "Abbrechen" …) auf
           // Deutsch statt Englisch.

@@ -2,6 +2,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 
+import 'demo_mode.dart';
 import 'http_timeout.dart';
 
 /// Ein Eintrag des Kollegiums: Kürzel, voller Name, Foto-URL.
@@ -56,14 +57,14 @@ typedef TeacherLookup = TeacherEntry? Function(String kuerzel);
 /// Lehrkraft-Kürzel auf die vollen Namen ab.
 class TeacherDirectory {
   TeacherDirectory({http.Client? client, String? baseUrl})
-    : _client = client ?? http.Client(),
+    : _client = client ?? DemoAwareClient(),
       _baseUrl = baseUrl ?? 'https://start.bbs-papenburg.de/kollegium.php',
       _origin = Uri.parse(
         baseUrl ?? 'https://start.bbs-papenburg.de/kollegium.php',
       ).origin;
 
   static const String _userAgent =
-      'BetterStundenplan/1.5.0 (+https://github.com/LarvenStein/better-stundenplan)';
+      'BetterStundenplan/1.5.1 (+https://github.com/LarvenStein/better-stundenplan)';
 
   final http.Client _client;
   final String _baseUrl;

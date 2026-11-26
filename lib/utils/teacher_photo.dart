@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/demo_data.dart';
+
 /// Zeigt das Portrait-Foto einer Lehrkraft in einem Dialog.
 ///
 /// Nutzt [teacherDisplay] (voller Name, ggf. mit Kürzel) als Titel; lädt das
@@ -19,8 +21,11 @@ void showTeacherPhotoDialog(
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                photoUrl,
+              // Demo-Lehrkräfte haben ein mitgeliefertes Platzhalterbild.
+              child: Image(
+                image: Uri.tryParse(photoUrl)?.host == kDemoPhotoHost
+                    ? const AssetImage('assets/foreground.png')
+                    : NetworkImage(photoUrl) as ImageProvider,
                 width: 240,
                 height: 240,
                 fit: BoxFit.cover,

@@ -11,7 +11,7 @@ class KlassenbuchApi {
     : _client = client ?? http.Client(),
       _userAgent =
           userAgent ??
-          'BetterStundenplan/1.5.0 (+https://github.com/LarvenStein/better-stundenplan)';
+          'BetterStundenplan/1.5.1 (+https://github.com/LarvenStein/better-stundenplan)';
 
   final http.Client _client;
   final String _userAgent;

@@ -58,6 +58,15 @@ class TeacherDirectoryProvider extends ChangeNotifier {
   /// Lädt das Verzeichnis (Platten-Cache, dann Netz). Idempotent.
   Future<void> load() => _inFlight ??= _doLoad();
 
+  /// Verwirft alle Einträge und lädt neu (Wechsel in den/aus dem Demo-Modus).
+  Future<void> reset() async {
+    await _inFlight;
+    _entries = {};
+    _inFlight = null;
+    notifyListeners();
+    await load();
+  }
+
   Future<void> _doLoad() async {
     final cached = await _loadFromDisk();
     if (cached != null && cached.isNotEmpty) {

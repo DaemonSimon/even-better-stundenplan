@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import 'demo_mode.dart';
 import 'http_timeout.dart';
 import 'secure_storage.dart';
 
@@ -9,7 +10,7 @@ import 'secure_storage.dart';
 class SessionManager extends ChangeNotifier {
   SessionManager({required CredentialStorage storage, http.Client? client})
     : _storage = storage,
-      _client = client ?? http.Client();
+      _client = client ?? DemoAwareClient();
 
   final CredentialStorage _storage;
   final http.Client _client;
@@ -17,7 +18,7 @@ class SessionManager extends ChangeNotifier {
   static const String _baseLoginUrl =
       'https://virtueller-stundenplan.org/index.php';
   static const String _userAgent =
-      'BetterStundenplan/1.5.0 (+https://github.com/LarvenStein/better-stundenplan)';
+      'BetterStundenplan/1.5.1 (+https://github.com/LarvenStein/better-stundenplan)';
 
   bool _isLoggedIn = false;
   String? _sessionId;
@@ -77,6 +78,11 @@ class SessionManager extends ChangeNotifier {
     bool saveCredentials = true,
   }) async {
     try {
+      if (DemoMode.isDemoLogin(email, password)) {
+        await DemoMode.enter();
+      } else {
+        await DemoMode.leave();
+      }
       final newSessionId = await _authenticate(email, password);
       if (newSessionId == null) {
         _setLoggedIn(false);
@@ -111,6 +117,7 @@ class SessionManager extends ChangeNotifier {
 
   /// Meldet ab und entfernt alle gespeicherten Zugangsdaten.
   Future<void> logout() async {
+    await DemoMode.leave();
     await _storage.clear();
     _sessionId = null;
     _setLoggedIn(false);

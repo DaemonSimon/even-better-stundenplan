@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../services/demo_mode.dart';
 import '../services/iserv_session.dart';
 
 /// webview_flutter kodiert Cookie-Werte beim Setzen per
@@ -38,9 +39,13 @@ class _IservWebPageState extends State<IservWebPage> {
   late final WebViewController _controller;
   int _progress = 0;
 
+  /// Im Demo-Modus gibt es keine echte IServ-Seite zum Anzeigen.
+  final bool _demo = DemoMode.active.value;
+
   @override
   void initState() {
     super.initState();
+    if (_demo) return;
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
@@ -83,6 +88,21 @@ class _IservWebPageState extends State<IservWebPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_demo) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.title)),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Demo-Modus: Hier würde die IServ-Seite angezeigt, auf der du '
+              'zum Beispiel Dateien abgibst.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
     return PopScope(
       // Zurück-Geste blättert erst innerhalb von IServ zurück.
       canPop: false,

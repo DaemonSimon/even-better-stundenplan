@@ -6,6 +6,7 @@ import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'demo_mode.dart';
 import 'http_timeout.dart';
 
 /// Fehler bei der Kommunikation mit IServ.
@@ -79,7 +80,7 @@ class IservSession {
     http.Client? client,
     this.baseUrl = 'https://bbs-papenburg.eu/iserv',
     IservCredentialStore? credentials,
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? DemoAwareClient(),
        _credentials = credentials ?? IservCredentialStore();
 
   static const String _prefsKey = 'iserv_cookies';
