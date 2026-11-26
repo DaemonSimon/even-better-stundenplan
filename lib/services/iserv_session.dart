@@ -117,8 +117,7 @@ class IservSession {
   Future<void> restore() async {
     _usesStore = true;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
+      final raw = await _readStoredCookies();
       // Woanders abgemeldet: auch hier keine Cookies mehr verwenden.
       if (raw == null || raw.isEmpty) _cookies.clear();
       if (raw != null && raw.isNotEmpty) {
@@ -151,12 +150,27 @@ class IservSession {
     if (_usesStore) await restore();
   }
 
+  /// Session-Cookies sind so schützenswert wie ein Passwort und liegen
+  /// deshalb verschlüsselt. Ältere Versionen haben sie im Klartext in den
+  /// SharedPreferences gespeichert; diese werden hier umgezogen.
+  Future<String?> _readStoredCookies() async {
+    const storage = FlutterSecureStorage();
+    final prefs = await SharedPreferences.getInstance();
+    final legacy = prefs.getString(_prefsKey);
+    if (legacy == null) return storage.read(key: _prefsKey);
+    await storage.write(key: _prefsKey, value: legacy);
+    await prefs.remove(_prefsKey);
+    return legacy;
+  }
+
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(_cookies));
+      await const FlutterSecureStorage().write(
+        key: _prefsKey,
+        value: jsonEncode(_cookies),
+      );
     } catch (_) {
-      // Ohne SharedPreferences (Tests) wird nichts gespeichert.
+      // Ohne Plugin (Tests) wird nichts gespeichert.
     }
   }
 
@@ -166,6 +180,7 @@ class IservSession {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_prefsKey);
+      await const FlutterSecureStorage().delete(key: _prefsKey);
     } catch (_) {}
   }
 
@@ -216,6 +231,13 @@ class IservSession {
       if (_cookies.isNotEmpty && sameHost) {
         request.headers['cookie'] = _cookieHeader();
       }
+      // Das Formular enthält Passwort bzw. Login-Code: nie an fremde Hosts
+      // oder unverschlüsselt weitergeben.
+      if (requestForm != null && !sameHost) {
+        throw const IservException(
+          'Anmeldung abgebrochen: Weiterleitung auf eine fremde Adresse',
+        );
+      }
       if (requestForm != null) {
         request.headers['content-type'] = 'application/x-www-form-urlencoded';
         request.body = requestForm.entries
@@ -232,12 +254,12 @@ class IservSession {
         _captureCookies(response.headers['set-cookie']);
       }
 
+      // Ohne Cookie-Werte und Query (enthält OAuth-Codes): Das Protokoll
+      // wird bei Fehlern in der App angezeigt und kann kopiert werden.
       requestLog.add(
         '[$i] $requestMethod ${response.statusCode} '
         '${current.host}${current.path}'
-        '${current.query.isNotEmpty ? '?${current.query.length > 60 ? '${current.query.substring(0, 60)}…' : current.query}' : ''}'
-        ' | cookie: ${_cookies.keys.join(',')}'
-        '${response.headers['set-cookie'] != null ? ' | set-cookie: ${response.headers['set-cookie']!.split(';').first}' : ''}',
+        ' | cookie: ${_cookies.keys.join(',')}',
       );
       if (requestLog.length > 20) {
         requestLog.removeAt(0);

@@ -17,7 +17,7 @@ class SessionManager extends ChangeNotifier {
   static const String _baseLoginUrl =
       'https://virtueller-stundenplan.org/index.php';
   static const String _userAgent =
-      'BetterStundenplan/1.4.4 (+https://github.com/LarvenStein/better-stundenplan)';
+      'BetterStundenplan/1.5.0 (+https://github.com/LarvenStein/better-stundenplan)';
 
   bool _isLoggedIn = false;
   String? _sessionId;

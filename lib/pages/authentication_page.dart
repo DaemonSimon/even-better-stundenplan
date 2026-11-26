@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../services/session_manager.dart';
+import 'legal_page.dart';
 
 class AuthenticationPage extends StatefulWidget {
   const AuthenticationPage({super.key, required this.sessionManager});
@@ -46,7 +47,8 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
         title: Text("Autorisierung"),
       ),
       body: Center(
-        child: Column(
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -128,7 +130,22 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                'Mit "Autorisieren" speichert die App E-Mail und Schülercode '
+                'verschlüsselt auf diesem Gerät und sendet sie an '
+                'virtueller-stundenplan.org, um dich anzumelden.',
+                textAlign: TextAlign.center,
+              ),
+            ),
+            TextButton(
+              onPressed: () => openPrivacyPolicy(context),
+              child: const Text('Datenschutzerklärung'),
+            ),
           ],
+        ),
         ),
       ),
     );

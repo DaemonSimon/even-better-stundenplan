@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'legal_page.dart';
+
 /// Willkommensbildschirm beim allerersten Start: erklärt kurz, was die
 /// App kann und welche Anmeldungen es gibt.
 class WelcomePage extends StatelessWidget {
@@ -73,8 +75,9 @@ class WelcomePage extends StatelessWidget {
                 icon: Icons.lock_outline,
                 title: 'Deine Daten bleiben bei dir',
                 text:
-                    'Zugangsdaten werden verschlüsselt nur auf diesem Gerät '
-                    'gespeichert. Dein Passwortmanager kann sie ausfüllen.',
+                    'Zugangsdaten werden verschlüsselt auf diesem Gerät '
+                    'gespeichert und nur zur Anmeldung an die jeweilige '
+                    'Schulseite gesendet. Der Entwickler erhält keine Daten.',
               ),
               const SizedBox(height: 32),
               FilledButton(
@@ -88,6 +91,11 @@ class WelcomePage extends StatelessWidget {
               TextButton(
                 onPressed: () => _finish(context, '/'),
                 child: const Text('Erst mal umsehen'),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => openPrivacyPolicy(context),
+                child: const Text('Datenschutzerklärung'),
               ),
             ],
           ),

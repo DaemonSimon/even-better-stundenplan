@@ -1,7 +1,12 @@
-<!-- Features -->
+<p>Für Schülerinnen und Schüler der BBS Papenburg. Du brauchst deinen eigenen Zugang zu virtueller-stundenplan.org.</p>
+
 <p><strong>Funktionen:</strong></p>
 <ul>
-  <li>Wochenansicht: Zeigt den Stundenplan für eine ganze Woche an.</li>
-  <li>Tagesansicht: Zeigt den Stundenplan für einen einzelnen Tag an.</li>
-  <li>Detailansicht: Zeigt Details zu Unterrichtsstunden und ermöglicht Aliasse für Fächer, Lehrkräfte und Räume.</li>
+  <li>Stundenplan nach Tagen mit Vertretungen und Raumänderungen</li>
+  <li>Eigene Hausaufgaben mit Fotos und Erinnerungen</li>
+  <li>Optional: Aufgaben, Dateien und Kalendertermine aus IServ</li>
+  <li>Offline nutzbar</li>
+  <li>Eigene Namen für Fächer, Lehrkräfte und Räume</li>
 </ul>
+
+<p><strong>Datenschutz:</strong> Kein eigener Server, keine Werbung, kein Tracking. Zugangsdaten werden verschlüsselt auf deinem Gerät gespeichert und nur an die Seiten gesendet, bei denen du dich anmeldest.</p>

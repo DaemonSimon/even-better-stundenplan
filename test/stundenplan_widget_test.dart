@@ -429,7 +429,7 @@ void main() {
   ) async {
     PackageInfo.setMockInitialValues(
       appName: 'Better Stundenplan',
-      packageName: 'in.eike.better_stundenplan',
+      packageName: 'app.betterstundenplan',
       version: '9.8.7',
       buildNumber: '42',
       buildSignature: '',

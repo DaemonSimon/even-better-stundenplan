@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../pages/legal_page.dart';
 import '../services/app_settings.dart';
 import '../services/homework_reminders.dart';
 import '../services/iserv_logout.dart';
@@ -18,6 +19,7 @@ Future<void> showGroupSettingsSheet(
   required ValueChanged<String?> onChanged,
   VoidCallback? onSettingsChanged,
   VoidCallback? onLogout,
+  VoidCallback? onDeleteAllData,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -28,6 +30,7 @@ Future<void> showGroupSettingsSheet(
       onChanged: onChanged,
       onSettingsChanged: onSettingsChanged,
       onLogout: onLogout,
+      onDeleteAllData: onDeleteAllData,
     ),
   );
 }
@@ -41,6 +44,7 @@ class GroupSettingsSheet extends StatefulWidget {
     required this.onChanged,
     this.onSettingsChanged,
     this.onLogout,
+    this.onDeleteAllData,
   });
 
   /// Aktuell gespeicherte Gruppe (z. B. "A") oder null.
@@ -53,6 +57,9 @@ class GroupSettingsSheet extends StatefulWidget {
 
   /// Abmelden vom Stundenplan-Konto (nach Bestätigung, Sheet ist zu).
   final VoidCallback? onLogout;
+
+  /// Alle App-Daten löschen (nach Bestätigung, Sheet ist zu).
+  final VoidCallback? onDeleteAllData;
 
   @override
   State<GroupSettingsSheet> createState() => _GroupSettingsSheetState();
@@ -142,6 +149,33 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
     if (confirmed != true || !mounted) return;
     Navigator.of(context).pop();
     widget.onLogout?.call();
+  }
+
+  Future<void> _confirmDeleteAll() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Alle App-Daten löschen?'),
+        content: const Text(
+          'Zugangsdaten, gespeicherte Pläne und Aufgaben, eigene '
+          'Hausaufgaben mit Fotos und alle Einstellungen werden von diesem '
+          'Gerät gelöscht. Deine Schulkonten bleiben bestehen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    Navigator.of(context).pop();
+    widget.onDeleteAllData?.call();
   }
 
   Future<void> _confirmIservLogout() async {
@@ -388,6 +422,34 @@ class _GroupSettingsSheetState extends State<GroupSettingsSheet> {
                   ),
                 ],
               ],
+              const SizedBox(height: 24),
+              Text(
+                'Datenschutz & Rechtliches',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+             
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Datenschutzerklärung'),
+                onTap: () => openPrivacyPolicy(context),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.description_outlined),
+                title: const Text('Open-Source-Lizenzen'),
+                onTap: () => openLicenses(context),
+              ),
+              if (widget.onDeleteAllData != null)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.delete_forever_outlined),
+                  title: const Text('Alle App-Daten löschen'),
+                  onTap: _confirmDeleteAll,
+                ),
               if (_version != null) ...[
                 const SizedBox(height: 24),
                 Center(

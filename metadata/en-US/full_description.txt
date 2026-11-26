@@ -1,9 +1,14 @@
-<!-- Features -->
+<p>For students of BBS Papenburg (Germany). You need your own virtueller-stundenplan.org login.</p>
+
 <p><strong>Features:</strong></p>
 <ul>
-  <li>Week View: Displays the schedule for an entire week.</li>
-  <li>Day View: Displays the schedule for a single day.</li>
-  <li>Detail View: Shows details of individual lessons and allows setting aliases for subjects, teachers, and rooms.</li>
+  <li>Daily timetable with substitutions and room changes</li>
+  <li>Your own homework notes with photos and reminders</li>
+  <li>Optional: assignments, files and calendar events from IServ</li>
+  <li>Works offline</li>
+  <li>Custom names for subjects, teachers and rooms</li>
 </ul>
 
-<p><strong>Note:</strong> This app is only available in German.</p>
+<p><strong>Privacy:</strong> No server of our own, no ads, no tracking. Your login is stored encrypted on your device and sent only to the sites you sign in to.</p>
+
+<p><strong>Note:</strong> The app is only available in German.</p>

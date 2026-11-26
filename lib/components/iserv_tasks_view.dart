@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'homework_image_viewer.dart';
+import '../pages/legal_page.dart';
 import '../pages/iserv_task_page.dart';
 import '../pages/iserv_web_page.dart';
 import '../services/iserv_task_detail.dart';
@@ -462,7 +463,9 @@ class _IservTasksViewState extends State<IservTasksView>
                 style: theme.textTheme.titleLarge,
               ),
               Text(
-                'Mit deinem IServ-Account anmelden, um die Aufgaben zu sehen.',
+                'Mit deinem IServ-Account anmelden, um die Aufgaben zu sehen. '
+                'Die App speichert Account und Passwort verschlüsselt auf '
+                'diesem Gerät und sendet sie nur an IServ.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
@@ -512,6 +515,10 @@ class _IservTasksViewState extends State<IservTasksView>
                 onPressed: _login,
                 icon: const Icon(Icons.login),
                 label: const Text('Anmelden'),
+              ),
+              TextButton(
+                onPressed: () => openPrivacyPolicy(context),
+                child: const Text('Datenschutzerklärung'),
               ),
             ],
           ),

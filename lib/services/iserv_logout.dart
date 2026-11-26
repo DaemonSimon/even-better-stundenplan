@@ -1,3 +1,5 @@
+import 'package:webview_flutter/webview_flutter.dart';
+
 import 'iserv_offline_store.dart';
 import 'iserv_session.dart';
 import 'iserv_tasks.dart';
@@ -11,6 +13,12 @@ Future<void> logoutFromIserv() async {
   await session.logout();
   await IservTaskCache().clear();
   await IservOfflineStore.instance.clear();
+  // Die In-App-Ansicht hat eine eigene Kopie der Session-Cookies.
+  try {
+    await WebViewCookieManager().clearCookies();
+  } catch (_) {
+    // Ohne WebView (Tests) gibt es nichts zu löschen.
+  }
   IservSession.logoutRevision.value++;
 }
 

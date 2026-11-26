@@ -4,6 +4,9 @@ Ein (hoffentlich) nicht ganz so schlechter Client für [virtueller-stundenplan.o
 
 Dieses Projekt entsteht im Rahmen eines Schulprojekts, in dem wir mit Unterstützung Künstlicher Intelligenz eine App entwickeln.
 
+> [!NOTE]
+> [Datenschutzerklärung](assets/datenschutz.md)
+
 > [!IMPORTANT]
 > **ACHTUNG:** Der Code könnte absolut grauenhaft sein!
 
@@ -150,7 +153,8 @@ Die App ist „offline-first“: Sie zeigt immer zuerst, was sie schon gespeiche
 ## Datenschutz und Zugangsdaten
 
 - Zugangsdaten werden **verschlüsselt im Android Keystore** abgelegt (Plattform-Funktion, nicht in Klartext-Einstellungen). Sie dienen nur dazu, dich still neu anzumelden, wenn eine Sitzung abläuft.
-- Die App sendet Daten **ausschließlich** an die oben genannten Seiten der Schule. Es gibt keinen Analyse- oder Werbedienst und keinen eigenen Server.
+- Die App sendet Daten **ausschließlich** an die oben genannten Seiten. Es gibt keinen Analyse- oder Werbedienst und keinen eigenen Server.
+- „Alle App-Daten löschen“ in den Einstellungen entfernt alles, was die App gespeichert hat.
 - „Abmelden“ in den Einstellungen löscht die gespeicherten Zugangsdaten bzw. die IServ-Dateien.
 - Schlägt eine automatische IServ-Anmeldung fehl (z. B. nach einer Passwortänderung), wartet die App 30 Minuten, bevor sie es erneut versucht. So wird dein Konto nicht durch viele Fehlversuche gesperrt.
 

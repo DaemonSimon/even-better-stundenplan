@@ -1,1 +1,1 @@
-Ein (hoffentlich) nicht ganz so schlechter Client für virtueller-stundenplan.org
+App für den Stundenplan der BBS Papenburg

@@ -10,6 +10,7 @@ import '../components/group_settings_sheet.dart';
 import '../components/stundenplan_widget.dart';
 import '../providers/date_utilities.dart';
 import '../providers/teacher_directory_provider.dart';
+import '../services/app_data.dart';
 import '../services/app_settings.dart';
 import '../services/connectivity_monitor.dart';
 import '../services/group_preference.dart';
@@ -217,6 +218,21 @@ class _MyHomePageState extends State<HomePage> with WidgetsBindingObserver {
       onLogout: () async {
         await widget.sessionManager.logout();
         if (mounted) context.go('/authenticate');
+      },
+      onDeleteAllData: () async {
+        final complete = await deleteAllAppData(widget.sessionManager);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              complete
+                  ? 'Alle App-Daten gelöscht'
+                  : 'Nicht alles konnte gelöscht werden. Lösche die '
+                        'App-Daten in den Android-Einstellungen.',
+            ),
+          ),
+        );
+        context.go('/welcome');
       },
     );
   }

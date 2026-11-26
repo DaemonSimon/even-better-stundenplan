@@ -1,4 +1,4 @@
-package `in`.eike.better_stundenplan
+package app.betterstundenplan
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 
