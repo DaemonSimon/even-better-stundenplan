@@ -10,7 +10,7 @@ class StundenplanApi {
     : _client = client ?? DemoAwareClient(),
       _userAgent =
           userAgent ??
-          'BetterStundenplan/1.5.1 (+https://github.com/LarvenStein/better-stundenplan)';
+          'BetterStundenplan/1.5.2 (+https://github.com/LarvenStein/better-stundenplan)';
 
   final http.Client _client;
   final String _userAgent;

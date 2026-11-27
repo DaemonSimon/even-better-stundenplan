@@ -255,7 +255,7 @@ class _LessonDetailSheet extends StatelessWidget {
 /// (Kürzel in Klammern); die E-Mail-Adresse aus dem Kollegium wird
 /// angezeigt und per Tap kopiert. Bei einer Vertretung stehen links die
 /// Vertretungslehrkraft (rot) und rechts der eigentliche Lehrer (durch-
-/// gestrichen) – beide per Tap auf ihr Portrait-Foto klickbar.
+/// gestrichen) – beide per Tap mit Link zu ihrem Foto auf der Schulwebsite.
 class _LessonInfo extends StatelessWidget {
   const _LessonInfo({
     required this.lesson,
@@ -375,19 +375,18 @@ class _LessonInfo extends StatelessWidget {
         : '${split.prefix}: $resolved (${split.kuerzel})';
   }
 
-  /// Öffnet das Portrait-Foto zur Lehrkraft, falls ein Foto existiert.
+  /// Verweist auf die Schulwebsite, falls dort ein Foto existiert.
   VoidCallback? _photoTap(BuildContext context, String raw) {
     if (raw.isEmpty) return null;
     final split = splitTeacherPrefix(raw);
     final entry = teacherLookup?.call(split.kuerzel);
-    final photoUrl = entry?.photoUrl;
-    if (photoUrl == null) return null;
-    return () => showTeacherPhotoDialog(context, _displayFor(raw), photoUrl);
+    if (entry == null || entry.photoUrl == null) return null;
+    return () => showTeacherPhotoDialog(context, _displayFor(raw), entry);
   }
 }
 
 /// Eine Lehrkraft-Zeile: Icon, Name – bei Vertretung rot und/oder durch-
-/// gestrichen (Original), per Tap das Portrait-Foto (falls vorhanden).
+/// gestrichen (Original), per Tap der Link zum Foto (falls vorhanden).
 class _TeacherLine extends StatelessWidget {
   const _TeacherLine({
     required this.name,

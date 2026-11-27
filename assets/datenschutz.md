@@ -1,6 +1,6 @@
 # Datenschutzerklärung – Better Stundenplan
 
-Stand: 26. November 2026
+Stand: 27. November 2026
 
 ## Wer ist verantwortlich?
 
@@ -17,7 +17,7 @@ Der Entwickler betreibt keinen Server und erhält keine deiner Daten. Es gibt ke
 - Zugangsdaten für virtueller-stundenplan.org (E-Mail und Schülercode) und, falls du IServ nutzt, Account, Passwort und Sitzungs-Cookies. Sie werden verschlüsselt auf deinem Gerät gespeichert (Android Keystore bzw. iOS-Schlüsselbund) und nur für die Anmeldung an die jeweilige Seite gesendet.
 - Stundenplan, IServ-Aufgaben, Anhänge und Kalendertermine: werden von den Seiten geladen und für die Offline-Nutzung auf dem Gerät gespeichert.
 - Lokale Hausaufgaben, Fotos, die du anhängst, Aliasse und Einstellungen: bleiben auf dem Gerät.
-- Namen, Kürzel und Fotos der Lehrkräfte: stammen von der öffentlichen Kollegiumsseite der Schule. Namen und Kürzel werden zwischengespeichert, ein Foto wird von dort geladen, wenn du es öffnest.
+- Namen und Kürzel der Lehrkräfte: stammen von der öffentlichen Kollegiumsseite der Schule und werden zwischengespeichert. Tippst du auf eine Lehrkraft und wählst "Foto ansehen", öffnet sich diese Seite in deinem Browser (als Ansicht über der App). Dabei wird der Name der Lehrkraft als Teil der Adresse an den Browser übergeben, damit er ihn markieren kann.
 
 Die Kamera oder Galerie wird nur genutzt, wenn du selbst ein Foto hinzufügst. Benachrichtigungen werden lokal auf dem Gerät geplant.
 

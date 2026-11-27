@@ -458,7 +458,7 @@ void main() {
     expect(version, findsOneWidget);
   });
 
-  testWidgets('tapping the teacher name opens the teacher photo dialog', (
+  testWidgets('tapping the teacher name offers the school website link', (
     tester,
   ) async {
     final repository = fixtureRepository(
@@ -486,13 +486,12 @@ void main() {
     expect(find.text('Helga Müller (Müller)'), findsOneWidget);
     expect(find.byType(Dialog), findsNothing);
 
-    // Name antippen -> Foto-Dialog (Bild-Laden ist im Test gesperrt,
-    // daher erscheint der errorBuilder).
+    // Name antippen -> Dialog mit Link zur Schulwebsite.
     await tester.tap(find.text('Helga Müller (Müller)'));
     await tester.pumpAndSettle();
 
     expect(find.byType(Dialog), findsOneWidget);
-    expect(find.byIcon(Icons.person_off), findsOneWidget);
+    expect(find.text('Foto ansehen'), findsOneWidget);
   });
 
   testWidgets('teacher row is not tappable without a photo', (tester) async {
@@ -611,7 +610,7 @@ void main() {
     });
   });
 
-  testWidgets('tapping a substitute in the detail modal opens its photo', (
+  testWidgets('tapping a substitute in the detail modal offers its link', (
     tester,
   ) async {
     final repository = fixtureRepository(
@@ -646,7 +645,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(Dialog), findsOneWidget);
-    expect(find.byIcon(Icons.person_off), findsOneWidget);
+    expect(find.text('Foto ansehen'), findsOneWidget);
   });
 
   testWidgets('detail modal shows substitute left and struck original right', (
